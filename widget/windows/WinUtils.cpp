@@ -40,7 +40,7 @@
 #include "nsNetCID.h"
 #include "prtime.h"
 #ifdef MOZ_PLACES
-#include "nsIFaviconService.h"
+#  include "nsIFaviconService.h"
 #endif
 #include "nsIIconURI.h"
 #include "nsIDownloader.h"
@@ -55,8 +55,8 @@
 #include "nsWindowsHelpers.h"
 
 #ifdef NS_ENABLE_TSF
-#include <textstor.h>
-#include "TSFTextStore.h"
+#  include <textstor.h>
+#  include "TSFTextStore.h"
 #endif  // #ifdef NS_ENABLE_TSF
 
 #include <shlobj.h>
@@ -1152,7 +1152,7 @@ nsresult AsyncFaviconDataReady::OnFaviconDataNotAvailable(void) {
   rv = NS_NewDownloader(getter_AddRefs(listener), downloadObserver, icoFile);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  return channel->AsyncOpen2(listener);
+  return channel->AsyncOpen(listener);
 }
 
 NS_IMETHODIMP

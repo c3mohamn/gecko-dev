@@ -6,7 +6,7 @@
 
 var Services = require("Services");
 loader.lazyRequireGetter(this, "Utils", "devtools/client/webconsole/utils", true);
-loader.lazyRequireGetter(this, "WebConsoleFrame", "devtools/client/webconsole/webconsole-frame", true);
+loader.lazyRequireGetter(this, "WebConsoleUI", "devtools/client/webconsole/webconsole-ui", true);
 loader.lazyRequireGetter(this, "gDevTools", "devtools/client/framework/devtools", true);
 loader.lazyRequireGetter(this, "viewSource", "devtools/client/shared/view-source");
 loader.lazyRequireGetter(this, "openDocLink", "devtools/client/shared/link", true);
@@ -44,7 +44,7 @@ function WebConsole(target, iframeWindow, chromeWindow, hudService) {
   if (element.getAttribute("windowtype") != gDevTools.chromeWindowType) {
     this.browserWindow = this.hudService.currentContext();
   }
-  this.ui = new WebConsoleFrame(this);
+  this.ui = new WebConsoleUI(this);
 }
 
 WebConsole.prototype = {
@@ -115,8 +115,8 @@ WebConsole.prototype = {
   },
 
   /**
-   * Alias for the WebConsoleFrame.setFilterState() method.
-   * @see webconsole.js::WebConsoleFrame.setFilterState()
+   * Alias for the WebConsoleUI.setFilterState() method.
+   * @see webconsole.js::WebConsoleUI.setFilterState()
    */
   setFilterState() {
     this.ui && this.ui.setFilterState.apply(this.ui, arguments);
@@ -253,7 +253,11 @@ WebConsole.prototype = {
     }
 
     if (this.parserService && expression.includes("await ")) {
-      return this.parserService.mapExpression(expression);
+      const shouldMapBindings = false;
+      const shouldMapAwait = true;
+      const res = this.parserService.mapExpression(
+        expression, null, null, shouldMapBindings, shouldMapAwait);
+      return res;
     }
 
     return null;
@@ -320,7 +324,7 @@ WebConsole.prototype = {
 
       if (!this._browserConsole) {
         try {
-          await this.target.activeTab.focus();
+          await this.target.focus();
         } catch (ex) {
           // Tab focus can fail if the tab or target is closed.
         }

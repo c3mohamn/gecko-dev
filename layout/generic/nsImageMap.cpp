@@ -27,7 +27,7 @@
 #include "ImageLayers.h"
 
 #ifdef ACCESSIBILITY
-#include "nsAccessibilityService.h"
+#  include "nsAccessibilityService.h"
 #endif
 
 using namespace mozilla;
@@ -625,10 +625,7 @@ nsresult nsImageMap::GetBoundsForAreaContent(nsIContent* aContent,
 }
 
 void nsImageMap::AreaRemoved(HTMLAreaElement* aArea) {
-  if (aArea->IsInUncomposedDoc()) {
-    NS_ASSERTION(aArea->GetPrimaryFrame() == mImageFrame,
-                 "Unexpected primary frame");
-
+  if (aArea->GetPrimaryFrame() == mImageFrame) {
     aArea->SetPrimaryFrame(nullptr);
   }
 

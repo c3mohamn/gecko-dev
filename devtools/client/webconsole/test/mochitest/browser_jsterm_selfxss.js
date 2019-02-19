@@ -17,6 +17,7 @@ const WebConsoleUtils = require("devtools/client/webconsole/utils").Utils;
 const stringToCopy = "EvilCommand";
 
 add_task(async function() {
+  await pushPref("devtools.chrome.enabled", false);
   // Run test with legacy JsTerm
   await pushPref("devtools.webconsole.jsterm.codeMirror", false);
   await performTest();
@@ -27,8 +28,8 @@ add_task(async function() {
 
 async function performTest() {
   await pushPref("devtools.selfxss.count", 0);
-  const {jsterm} = await openNewTabAndConsole(TEST_URI);
-  const {document} = jsterm.hud;
+  const {jsterm, ui} = await openNewTabAndConsole(TEST_URI);
+  const {document} = ui;
 
   info("Self-xss paste tests");
   WebConsoleUtils.usageCount = 0;

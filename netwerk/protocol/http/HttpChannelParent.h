@@ -123,7 +123,13 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
 
   base::ProcessId OtherPid() const override;
 
-  void SetCrossProcessRedirect() { mDoingCrossProcessRedirect = true; }
+  // Calling this method will cancel the HttpChannelChild because the consumer
+  // needs to be relocated to another process.
+  // Any OnStart/Stop/DataAvailable calls that follow will not be sent to the
+  // child channel.
+  void CancelChildCrossProcessRedirect();
+
+  already_AddRefed<HttpChannelParentListener> GetParentListener();
 
  protected:
   // used to connect redirected-to channel in parent with just created
@@ -136,17 +142,17 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
       const OptionalURIParams& docUri, const OptionalURIParams& referrerUri,
       const uint32_t& referrerPolicy,
       const OptionalURIParams& internalRedirectUri,
-      const OptionalURIParams& topWindowUri, const uint32_t& loadFlags,
-      const RequestHeaderTuples& requestHeaders, const nsCString& requestMethod,
-      const OptionalIPCStream& uploadStream, const bool& uploadStreamHasHeaders,
-      const int16_t& priority, const uint32_t& classOfService,
-      const uint8_t& redirectionLimit, const bool& allowSTS,
-      const uint32_t& thirdPartyFlags, const bool& doResumeAt,
-      const uint64_t& startPos, const nsCString& entityID,
-      const bool& chooseApplicationCache, const nsCString& appCacheClientID,
-      const bool& allowSpdy, const bool& allowAltSvc,
-      const bool& beConservative, const uint32_t& tlsFlags,
-      const OptionalLoadInfoArgs& aLoadInfoArgs,
+      const OptionalURIParams& topWindowUri, nsIPrincipal* aTopWindowPrincipal,
+      const uint32_t& loadFlags, const RequestHeaderTuples& requestHeaders,
+      const nsCString& requestMethod, const OptionalIPCStream& uploadStream,
+      const bool& uploadStreamHasHeaders, const int16_t& priority,
+      const uint32_t& classOfService, const uint8_t& redirectionLimit,
+      const bool& allowSTS, const uint32_t& thirdPartyFlags,
+      const bool& doResumeAt, const uint64_t& startPos,
+      const nsCString& entityID, const bool& chooseApplicationCache,
+      const nsCString& appCacheClientID, const bool& allowSpdy,
+      const bool& allowAltSvc, const bool& beConservative,
+      const uint32_t& tlsFlags, const OptionalLoadInfoArgs& aLoadInfoArgs,
       const OptionalHttpResponseHead& aSynthesizedResponseHead,
       const nsCString& aSecurityInfoSerialization, const uint32_t& aCacheKey,
       const uint64_t& aRequestContextID,
@@ -337,6 +343,9 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
   uint8_t mCacheNeedFlowControlInitialized : 1;
   uint8_t mNeedFlowControl : 1;
   uint8_t mSuspendedForFlowControl : 1;
+
+  // The child channel was cancelled, as the consumer was relocated to another
+  // process.
   uint8_t mDoingCrossProcessRedirect : 1;
 
   // Number of events to wait before actually invoking AsyncOpen on the main

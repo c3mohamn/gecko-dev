@@ -122,6 +122,9 @@ class nsBlockFrame : public nsContainerFrame {
   nscoord GetLogicalBaseline(mozilla::WritingMode aWritingMode) const override;
   bool GetVerticalAlignBaseline(mozilla::WritingMode aWM,
                                 nscoord* aBaseline) const override {
+    NS_ASSERTION(!aWM.IsOrthogonalTo(GetWritingMode()),
+                 "You should only call this on frames with a WM that's "
+                 "parallel to aWM");
     nscoord lastBaseline;
     if (GetNaturalBaselineBOffset(aWM, BaselineSharingGroup::eLast,
                                   &lastBaseline)) {
@@ -407,8 +410,9 @@ class nsBlockFrame : public nsContainerFrame {
   void UpdateFirstLetterStyle(mozilla::ServoRestyleState& aRestyleState);
 
  protected:
-  explicit nsBlockFrame(ComputedStyle* aStyle, ClassID aID = kClassID)
-      : nsContainerFrame(aStyle, aID),
+  explicit nsBlockFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
+                        ClassID aID = kClassID)
+      : nsContainerFrame(aStyle, aPresContext, aID),
         mMinWidth(NS_INTRINSIC_WIDTH_UNKNOWN),
         mPrefWidth(NS_INTRINSIC_WIDTH_UNKNOWN) {
 #ifdef DEBUG
@@ -904,7 +908,7 @@ class nsBlockFrame : public nsContainerFrame {
   // mozListBullet or mozListNumber.  Passing in the style set is an
   // optimization, because all callsites have it.
   already_AddRefed<ComputedStyle> ResolveBulletStyle(
-      mozilla::CSSPseudoElementType aType, mozilla::ServoStyleSet* aStyleSet);
+      mozilla::PseudoStyleType aType, mozilla::ServoStyleSet* aStyleSet);
 
 #ifdef DEBUG
   void VerifyLines(bool aFinalCheckOK);

@@ -328,39 +328,6 @@ WebConsoleActor.prototype =
    * Destroy the current WebConsoleActor instance.
    */
   destroy() {
-    if (this.consoleServiceListener) {
-      this.consoleServiceListener.destroy();
-      this.consoleServiceListener = null;
-    }
-    if (this.netmonitors) {
-      for (const { messageManager } of this.netmonitors) {
-        messageManager.sendAsyncMessage("debug:destroy-network-monitor", {
-          actorID: this.actorID,
-        });
-      }
-      this.netmonitors = null;
-    }
-    if (this.consoleAPIListener) {
-      this.consoleAPIListener.destroy();
-      this.consoleAPIListener = null;
-    }
-    if (this.stackTraceCollector) {
-      this.stackTraceCollector.destroy();
-      this.stackTraceCollector = null;
-    }
-    if (this.consoleProgressListener) {
-      this.consoleProgressListener.destroy();
-      this.consoleProgressListener = null;
-    }
-    if (this.consoleReflowListener) {
-      this.consoleReflowListener.destroy();
-      this.consoleReflowListener = null;
-    }
-    if (this.contentProcessListener) {
-      this.contentProcessListener.destroy();
-      this.contentProcessListener = null;
-    }
-
     EventEmitter.off(this.parentActor, "changed-toplevel-document",
                this._onChangedToplevelDocument);
 
@@ -375,6 +342,7 @@ WebConsoleActor.prototype =
       this.dbg.onConsoleMessage = null;
     }
 
+    this.stopListeners({ listeners: null });
     this._actorPool = null;
     this._webConsoleCommandsCache = null;
     this._lastConsoleInputEvaluation = null;
@@ -740,8 +708,8 @@ WebConsoleActor.prototype =
     // If no specific listeners are requested to be detached, we stop all
     // listeners.
     const toDetach = request.listeners ||
-      ["PageError", "ConsoleAPI", "NetworkActivity",
-       "FileActivity", "ContentProcessMessages"];
+      ["PageError", "ConsoleAPI", "NetworkActivity", "FileActivity",
+       "ReflowActivity", "ContentProcessMessages", "DocumentEvents"];
 
     while (toDetach.length > 0) {
       const listener = toDetach.shift();
@@ -1042,7 +1010,7 @@ WebConsoleActor.prototype =
     const helperResult = evalInfo.helperResult;
 
     let result, errorDocURL, errorMessage, errorNotes = null, errorGrip = null,
-      frame = null, awaitResult;
+      frame = null, awaitResult, errorMessageName;
     if (evalResult) {
       if ("return" in evalResult) {
         result = evalResult.return;
@@ -1090,6 +1058,7 @@ WebConsoleActor.prototype =
         // object and retrieve its errorMessageName.
         try {
           errorDocURL = ErrorDocs.GetURL(error);
+          errorMessageName = error.errorMessageName;
         } catch (ex) {
           // ignored
         }
@@ -1163,6 +1132,7 @@ WebConsoleActor.prototype =
       exception: errorGrip,
       exceptionMessage: this._createStringGrip(errorMessage),
       exceptionDocURL: errorDocURL,
+      errorMessageName,
       frame,
       helperResult: helperResult,
       notes: errorNotes,
@@ -1272,11 +1242,11 @@ WebConsoleActor.prototype =
 
       // Sort the results in order to display lowercased item first (e.g. we want to
       // display `document` then `Document` as we loosely match the user input if the
-      // first letter they typed was lowercase).
+      // first letter was lowercase).
+      const firstMeaningfulCharIndex = isElementAccess ? 1 : 0;
       matches = Array.from(matches).sort((a, b) => {
-        const startingQuoteRegex = /^('|"|`)/;
-        const aFirstMeaningfulChar = startingQuoteRegex.test(a) ? a[1] : a[0];
-        const bFirstMeaningfulChar = startingQuoteRegex.test(b) ? b[1] : b[0];
+        const aFirstMeaningfulChar = a[firstMeaningfulCharIndex];
+        const bFirstMeaningfulChar = b[firstMeaningfulCharIndex];
         const lA = aFirstMeaningfulChar.toLocaleLowerCase() === aFirstMeaningfulChar;
         const lB = bFirstMeaningfulChar.toLocaleLowerCase() === bFirstMeaningfulChar;
         if (lA === lB) {

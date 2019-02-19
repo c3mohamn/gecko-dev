@@ -15,8 +15,8 @@
 
 var EXPORTED_SYMBOLS = ["ExtensionParent"];
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   AppConstants: "resource://gre/modules/AppConstants.jsm",
@@ -41,8 +41,8 @@ XPCOMUtils.defineLazyServiceGetters(this, {
 XPCOMUtils.defineLazyPreferenceGetter(this, "gTimingEnabled",
                                       "extensions.webextensions.enablePerformanceCounters",
                                       false);
-ChromeUtils.import("resource://gre/modules/ExtensionCommon.jsm");
-ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
+const {ExtensionCommon} = ChromeUtils.import("resource://gre/modules/ExtensionCommon.jsm");
+const {ExtensionUtils} = ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
 
 var {
   BaseContext,
@@ -356,7 +356,7 @@ ProxyMessenger = {
 
     let extension = GlobalManager.extensionMap.get(sender.extensionId);
 
-    if (extension.wakeupBackground) {
+    if (extension && extension.wakeupBackground) {
       await extension.wakeupBackground();
     }
 
@@ -1781,8 +1781,9 @@ class CacheStore {
   async delete(path) {
     let [store, key] = await this.getStore(path);
 
-    store.delete(key);
-    StartupCache.save();
+    if (store.delete(key)) {
+      StartupCache.save();
+    }
   }
 }
 

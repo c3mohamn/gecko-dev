@@ -6,7 +6,10 @@
 
 #include "ScrollAnchorContainer.h"
 
+#include "GeckoProfiler.h"
+#include "mozilla/dom/Text.h"
 #include "mozilla/StaticPrefs.h"
+#include "mozilla/ToString.h"
 #include "nsGfxScrollFrame.h"
 #include "nsLayoutUtils.h"
 
@@ -19,7 +22,7 @@ namespace layout {
 ScrollAnchorContainer::ScrollAnchorContainer(ScrollFrameHelper* aScrollFrame)
     : mScrollFrame(aScrollFrame),
       mAnchorNode(nullptr),
-      mLastAnchorPos(0, 0),
+      mLastAnchorOffset(0),
       mAnchorNodeIsDirty(true),
       mApplyingAnchorAdjustment(false),
       mSuppressAnchorAdjustment(false) {}
@@ -35,7 +38,7 @@ ScrollAnchorContainer* ScrollAnchorContainer::FindFor(nsIFrame* aFrame) {
       aFrame, nsLayoutUtils::SCROLLABLE_SAME_DOC |
                   nsLayoutUtils::SCROLLABLE_INCLUDE_HIDDEN);
   if (nearest) {
-    return nearest->GetAnchor();
+    return nearest->Anchor();
   }
   return nullptr;
 }
@@ -75,35 +78,103 @@ static void SetAnchorFlags(const nsIFrame* aScrolledFrame,
 
 /**
  * Compute the scrollable overflow rect [1] of aCandidate relative to
- * aScrollFrame with all transforms applied. The specification is also
- * ambiguous about what can be selected as a scroll anchor, which makes
- * the scroll anchoring bounding rect partially undefined [2]. This code
- * attempts to match the implementation in Blink.
+ * aScrollFrame with all transforms applied.
+ *
+ * The specification is ambiguous about what can be selected as a scroll anchor,
+ * which makes the scroll anchoring bounding rect partially undefined [2]. This
+ * code attempts to match the implementation in Blink.
+ *
+ * An additional unspecified behavior is that any scrollable overflow before the
+ * border start edge in the block axis of aScrollFrame should be clamped. This
+ * is to prevent absolutely positioned descendant elements from being able to
+ * trigger scroll adjustments [3].
  *
  * [1]
  * https://drafts.csswg.org/css-scroll-anchoring-1/#scroll-anchoring-bounding-rect
  * [2] https://github.com/w3c/csswg-drafts/issues/3478
+ * [3] https://bugzilla.mozilla.org/show_bug.cgi?id=1519541
  */
 static nsRect FindScrollAnchoringBoundingRect(const nsIFrame* aScrollFrame,
                                               nsIFrame* aCandidate) {
   MOZ_ASSERT(nsLayoutUtils::IsProperAncestorFrame(aScrollFrame, aCandidate));
-  if (aCandidate->GetContent()->IsText()) {
+  if (!!Text::FromNodeOrNull(aCandidate->GetContent())) {
+    // This is a frame for a text node. The spec says we need to accumulate the
+    // union of all line boxes in the coordinate space of the scroll frame
+    // accounting for transforms.
+    //
+    // To do this, we translate and accumulate the overflow rect for each text
+    // continuation to the coordinate space of the nearest ancestor block
+    // frame. Then we transform the resulting rect into the coordinate space of
+    // the scroll frame.
+    //
+    // Transforms aren't allowed on non-replaced inline boxes, so we can assume
+    // that these text node continuations will have the same transform as their
+    // nearest block ancestor. And it should be faster to transform their union
+    // rather than individually transforming each overflow rect
+    //
+    // XXX for fragmented blocks, blockAncestor will be an ancestor only to the
+    //     text continuations in the first block continuation. GetOffsetTo
+    //     should continue to work, but is it correct with transforms or a
+    //     performance hazard?
+    nsIFrame* blockAncestor =
+        nsLayoutUtils::FindNearestBlockAncestor(aCandidate);
+    MOZ_ASSERT(
+        nsLayoutUtils::IsProperAncestorFrame(aScrollFrame, blockAncestor));
     nsRect bounding;
     for (nsIFrame* continuation = aCandidate->FirstContinuation(); continuation;
          continuation = continuation->GetNextContinuation()) {
-      nsRect localRect =
+      nsRect overflowRect =
           continuation->GetScrollableOverflowRectRelativeToSelf();
-      nsRect transformed = nsLayoutUtils::TransformFrameRectToAncestor(
-          continuation, localRect, aScrollFrame);
-      bounding = bounding.Union(transformed);
+      overflowRect += continuation->GetOffsetTo(blockAncestor);
+      bounding = bounding.Union(overflowRect);
     }
-    return bounding;
+    return nsLayoutUtils::TransformFrameRectToAncestor(blockAncestor, bounding,
+                                                       aScrollFrame);
   }
 
-  nsRect localRect = aCandidate->GetScrollableOverflowRectRelativeToSelf();
+  nsRect borderRect = aCandidate->GetRectRelativeToSelf();
+  nsRect overflowRect = aCandidate->GetScrollableOverflowRectRelativeToSelf();
+
+  NS_ASSERTION(overflowRect.Contains(borderRect),
+               "overflow rect must include border rect, and the clamping logic "
+               "here depends on that");
+
+  // Clamp the scrollable overflow rect to the border start edge on the block
+  // axis of the scroll frame
+  WritingMode writingMode = aScrollFrame->GetWritingMode();
+  switch (writingMode.GetBlockDir()) {
+    case WritingMode::eBlockTB: {
+      overflowRect.SetBoxY(borderRect.Y(), overflowRect.YMost());
+      break;
+    }
+    case WritingMode::eBlockLR: {
+      overflowRect.SetBoxX(borderRect.X(), overflowRect.XMost());
+      break;
+    }
+    case WritingMode::eBlockRL: {
+      overflowRect.SetBoxX(overflowRect.X(), borderRect.XMost());
+      break;
+    }
+  }
+
   nsRect transformed = nsLayoutUtils::TransformFrameRectToAncestor(
-      aCandidate, localRect, aScrollFrame);
+      aCandidate, overflowRect, aScrollFrame);
   return transformed;
+}
+
+/**
+ * Compute the offset between the scrollable overflow rect start edge of
+ * aCandidate and the scroll-port start edge of aScrollFrame, in the block axis
+ * of aScrollFrame.
+ */
+static nscoord FindScrollAnchoringBoundingOffset(
+    const ScrollFrameHelper* aScrollFrame, nsIFrame* aCandidate) {
+  WritingMode writingMode = aScrollFrame->mOuter->GetWritingMode();
+  nsRect physicalBounding =
+      FindScrollAnchoringBoundingRect(aScrollFrame->mOuter, aCandidate);
+  LogicalRect logicalBounding(writingMode, physicalBounding,
+                              aScrollFrame->mScrolledFrame->GetSize());
+  return logicalBounding.BStart(writingMode);
 }
 
 void ScrollAnchorContainer::SelectAnchor() {
@@ -114,9 +185,10 @@ void ScrollAnchorContainer::SelectAnchor() {
     return;
   }
 
-  ANCHOR_LOG("Selecting anchor for %p with scroll-port [%d %d x %d %d].\n",
-             this, mScrollFrame->mScrollPort.x, mScrollFrame->mScrollPort.y,
-             mScrollFrame->mScrollPort.width, mScrollFrame->mScrollPort.height);
+  AUTO_PROFILER_LABEL("ScrollAnchorContainer::SelectAnchor", LAYOUT);
+  ANCHOR_LOG(
+      "Selecting anchor for %p with scroll-port=%s.\n", this,
+      mozilla::ToString(mScrollFrame->GetVisualOptimalViewingRect()).c_str());
 
   const nsStyleDisplay* disp = Frame()->StyleDisplay();
 
@@ -180,12 +252,11 @@ void ScrollAnchorContainer::SelectAnchor() {
 
   // Calculate the position to use for scroll adjustments
   if (mAnchorNode) {
-    mLastAnchorPos =
-        FindScrollAnchoringBoundingRect(Frame(), mAnchorNode).TopLeft();
-    ANCHOR_LOG("Using last anchor position = [%d, %d].\n", mLastAnchorPos.x,
-               mLastAnchorPos.y);
+    mLastAnchorOffset =
+        FindScrollAnchoringBoundingOffset(mScrollFrame, mAnchorNode);
+    ANCHOR_LOG("Using last anchor offset = %d.\n", mLastAnchorOffset);
   } else {
-    mLastAnchorPos = nsPoint();
+    mLastAnchorOffset = 0;
   }
 
   mAnchorNodeIsDirty = false;
@@ -204,10 +275,6 @@ void ScrollAnchorContainer::SuppressAdjustments() {
 }
 
 void ScrollAnchorContainer::InvalidateAnchor() {
-  if (!StaticPrefs::layout_css_scroll_anchoring_enabled()) {
-    return;
-  }
-
   ANCHOR_LOG("Invalidating scroll anchor %p for %p.\n", mAnchorNode, this);
 
   if (mAnchorNode) {
@@ -215,8 +282,12 @@ void ScrollAnchorContainer::InvalidateAnchor() {
   }
   mAnchorNode = nullptr;
   mAnchorNodeIsDirty = true;
-  mLastAnchorPos = nsPoint();
-  Frame()->PresShell()->PostDirtyScrollAnchorContainer(ScrollableFrame());
+  mLastAnchorOffset = 0;
+
+  if (!StaticPrefs::layout_css_scroll_anchoring_enabled()) {
+    return;
+  }
+  Frame()->PresShell()->PostPendingScrollAnchorSelection(this);
 }
 
 void ScrollAnchorContainer::Destroy() {
@@ -225,7 +296,7 @@ void ScrollAnchorContainer::Destroy() {
   }
   mAnchorNode = nullptr;
   mAnchorNodeIsDirty = false;
-  mLastAnchorPos = nsPoint();
+  mLastAnchorOffset = 0;
 }
 
 void ScrollAnchorContainer::ApplyAdjustments() {
@@ -236,26 +307,14 @@ void ScrollAnchorContainer::ApplyAdjustments() {
     return;
   }
 
-  nsPoint current =
-      FindScrollAnchoringBoundingRect(Frame(), mAnchorNode).TopLeft();
-  nsPoint adjustment = current - mLastAnchorPos;
-  nsIntPoint adjustmentDevicePixels =
-      adjustment.ToNearestPixels(Frame()->PresContext()->AppUnitsPerDevPixel());
-
-  ANCHOR_LOG("Anchor has moved from [%d, %d] to [%d, %d].\n", mLastAnchorPos.x,
-             mLastAnchorPos.y, current.x, current.y);
-
+  nscoord current =
+      FindScrollAnchoringBoundingOffset(mScrollFrame, mAnchorNode);
+  nscoord logicalAdjustment = current - mLastAnchorOffset;
   WritingMode writingMode = Frame()->GetWritingMode();
 
-  // The specification only allows for anchor adjustments in the block
-  // dimension, so remove the other component.
-  if (writingMode.IsVertical()) {
-    adjustmentDevicePixels.y = 0;
-  } else {
-    adjustmentDevicePixels.x = 0;
-  }
+  ANCHOR_LOG("Anchor has moved from %d to %d.\n", mLastAnchorOffset, current);
 
-  if (adjustmentDevicePixels == nsIntPoint()) {
+  if (logicalAdjustment == 0) {
     ANCHOR_LOG("Ignoring zero delta anchor adjustment for %p.\n", this);
     mSuppressAnchorAdjustment = false;
     return;
@@ -268,21 +327,40 @@ void ScrollAnchorContainer::ApplyAdjustments() {
     return;
   }
 
-  ANCHOR_LOG("Applying anchor adjustment of (%d %d) for %p and anchor %p.\n",
-             adjustment.x, adjustment.y, this, mAnchorNode);
+  ANCHOR_LOG("Applying anchor adjustment of %d in %s for %p and anchor %p.\n",
+             logicalAdjustment, writingMode.DebugString(), this, mAnchorNode);
+
+  nsPoint physicalAdjustment;
+  switch (writingMode.GetBlockDir()) {
+    case WritingMode::eBlockTB: {
+      physicalAdjustment.y = logicalAdjustment;
+      break;
+    }
+    case WritingMode::eBlockLR: {
+      physicalAdjustment.x = logicalAdjustment;
+      break;
+    }
+    case WritingMode::eBlockRL: {
+      physicalAdjustment.x = -logicalAdjustment;
+      break;
+    }
+  }
 
   MOZ_ASSERT(!mApplyingAnchorAdjustment);
   // We should use AutoRestore here, but that doesn't work with bitfields
   mApplyingAnchorAdjustment = true;
-  mScrollFrame->ScrollBy(
-      adjustmentDevicePixels, nsIScrollableFrame::DEVICE_PIXELS,
-      nsIScrollableFrame::INSTANT, nullptr, nsGkAtoms::relative);
+  mScrollFrame->ScrollTo(mScrollFrame->GetScrollPosition() + physicalAdjustment,
+                         nsIScrollableFrame::INSTANT, nsGkAtoms::relative);
   mApplyingAnchorAdjustment = false;
+
+  nsPresContext* pc = Frame()->PresContext();
+  Document* doc = pc->Document();
+  doc->UpdateForScrollAnchorAdjustment(logicalAdjustment);
 
   // The anchor position may not be in the same relative position after
   // adjustment. Update ourselves so we have consistent state.
-  mLastAnchorPos =
-      FindScrollAnchoringBoundingRect(Frame(), mAnchorNode).TopLeft();
+  mLastAnchorOffset =
+      FindScrollAnchoringBoundingOffset(mScrollFrame, mAnchorNode);
 }
 
 ScrollAnchorContainer::ExamineResult
@@ -293,6 +371,13 @@ ScrollAnchorContainer::ExamineAnchorCandidate(nsIFrame* aFrame) const {
 #else
   ANCHOR_LOG("\t\tVisiting frame=%p.\n", aFrame);
 #endif
+  bool isText = !!Text::FromNodeOrNull(aFrame->GetContent());
+  bool isContinuation = !!aFrame->GetPrevContinuation();
+
+  if (isText && isContinuation) {
+    ANCHOR_LOG("\t\tExcluding continuation text node.\n");
+    return ExamineResult::Exclude;
+  }
 
   // Check if the author has opted out of scroll anchoring for this frame
   // and its descendants.
@@ -346,10 +431,8 @@ ScrollAnchorContainer::ExamineAnchorCandidate(nsIFrame* aFrame) const {
 
   // Check what kind of frame this is
   bool isBlockOutside = aFrame->IsBlockOutside();
-  bool isText = aFrame->GetContent()->IsText();
   bool isAnonBox = aFrame->Style()->IsAnonBox() && !isText;
   bool isInlineOutside = aFrame->IsInlineOutside() && !isText;
-  bool isContinuation = !!aFrame->GetPrevContinuation();
 
   // If the frame is anonymous or inline-outside, search its descendants for a
   // scroll anchor.
@@ -378,7 +461,8 @@ ScrollAnchorContainer::ExamineAnchorCandidate(nsIFrame* aFrame) const {
   //
   // [1] https://github.com/w3c/csswg-drafts/issues/3483
   nsRect visibleRect;
-  if (!visibleRect.IntersectRect(rect, mScrollFrame->mScrollPort)) {
+  if (!visibleRect.IntersectRect(rect,
+                                 mScrollFrame->GetVisualOptimalViewingRect())) {
     return ExamineResult::Exclude;
   }
 

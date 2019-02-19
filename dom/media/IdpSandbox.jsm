@@ -4,8 +4,8 @@
 
 "use strict";
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 /** This little class ensures that redirects maintain an https:// origin */
 function RedirectHttpsOnly() {}
@@ -46,7 +46,7 @@ ResourceLoader.load = function(uri, doc) {
 
     ioChannel.loadGroup = doc.documentLoadGroup.QueryInterface(Ci.nsILoadGroup);
     ioChannel.notificationCallbacks = new RedirectHttpsOnly();
-    ioChannel.asyncOpen2(listener);
+    ioChannel.asyncOpen(listener);
   });
 };
 

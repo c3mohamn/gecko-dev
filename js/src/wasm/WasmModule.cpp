@@ -26,8 +26,10 @@
 #include "js/BuildId.h"  // JS::BuildIdCharVector
 #include "threading/LockGuard.h"
 #include "util/NSPR.h"
+#include "wasm/WasmBaselineCompile.h"
 #include "wasm/WasmCompile.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmIonCompile.h"
 #include "wasm/WasmJS.h"
 #include "wasm/WasmSerialize.h"
 
@@ -130,12 +132,10 @@ bool Module::finishTier2(const LinkData& linkData2,
       }
     }
 
-    HasGcTypes gcTypesConfigured = code().metadata().temporaryGcTypesConfigured;
     const CodeTier& tier2 = code().codeTier(Tier::Optimized);
 
     Maybe<size_t> stub2Index;
-    if (!stubs2->createTier2(gcTypesConfigured, funcExportIndices, tier2,
-                             &stub2Index)) {
+    if (!stubs2->createTier2(funcExportIndices, tier2, &stub2Index)) {
       return false;
     }
 
@@ -386,6 +386,13 @@ static UniqueMapping MapFile(PRFileDesc* file, PRFileInfo* info) {
 RefPtr<JS::WasmModule> wasm::DeserializeModule(PRFileDesc* bytecodeFile,
                                                UniqueChars filename,
                                                unsigned line) {
+  // We have to compile new code here so if we're fundamentally unable to
+  // compile, we have to fail. If you change this code, update the
+  // MutableCompileArgs setting below.
+  if (!BaselineCanCompile() && !IonCanCompile()) {
+    return nullptr;
+  }
+
   PRFileInfo bytecodeInfo;
   UniqueMapping bytecodeMapping = MapFile(bytecodeFile, &bytecodeInfo);
   if (!bytecodeMapping) {
@@ -409,17 +416,20 @@ RefPtr<JS::WasmModule> wasm::DeserializeModule(PRFileDesc* bytecodeFile,
     return nullptr;
   }
 
-  // The true answer to whether shared memory is enabled is provided by
-  // cx->realm()->creationOptions().getSharedMemoryAndAtomicsEnabled()
-  // where cx is the context that originated the call that caused this
-  // deserialization attempt to happen.  We don't have that context here, so
-  // we assume that shared memory is enabled; we will catch a wrong assumption
-  // later, during instantiation.
+  // The true answer to whether various flags are enabled is provided by
+  // the JSContext that originated the call that caused this deserialization
+  // attempt to happen. We don't have that context here, so we assume that
+  // shared memory is enabled; we will catch a wrong assumption later, during
+  // instantiation.
   //
   // (We would prefer to store this value with the Assumptions when
   // serializing, and for the caller of the deserialization machinery to
   // provide the value from the originating context.)
+  //
+  // Note this is guarded at the top of this function.
 
+  args->ionEnabled = IonCanCompile();
+  args->baselineEnabled = BaselineCanCompile();
   args->sharedMemoryEnabled = true;
 
   UniqueChars error;
@@ -562,8 +572,13 @@ bool Module::initSegments(JSContext* cx, HandleWasmInstanceObject instanceObj,
                           Handle<FunctionVector> funcImports,
                           HandleWasmMemoryObject memoryObj,
                           HandleValVector globalImportValues) const {
+  MOZ_ASSERT_IF(!memoryObj, dataSegments_.empty());
+
   Instance& instance = instanceObj->instance();
   const SharedTableVector& tables = instance.tables();
+
+#ifndef ENABLE_WASM_BULKMEM_OPS
+  // Bulk memory changes the error checking behavior: we may write partial data.
 
   // Perform all error checks up front so that this function does not perform
   // partial initialization if an error is reported.
@@ -599,21 +614,44 @@ bool Module::initSegments(JSContext* cx, HandleWasmInstanceObject instanceObj,
         return false;
       }
     }
-  } else {
-    MOZ_ASSERT(dataSegments_.empty());
   }
 
   // Now that initialization can't fail partway through, write data/elem
   // segments into memories/tables.
+#endif
 
   for (const ElemSegment* seg : elemSegments_) {
     if (seg->active()) {
       uint32_t offset = EvaluateInitExpr(globalImportValues, seg->offset());
-      instance.initElems(seg->tableIndex, *seg, offset, 0, seg->length());
+      uint32_t count = seg->length();
+#ifdef ENABLE_WASM_BULKMEM_OPS
+      uint32_t tableLength = tables[seg->tableIndex]->length();
+      bool fail = false;
+      if (offset > tableLength) {
+        fail = true;
+        count = 0;
+      } else if (tableLength - offset < count) {
+        fail = true;
+        count = tableLength - offset;
+      }
+#endif
+      if (count) {
+        instance.initElems(seg->tableIndex, *seg, offset, 0, count);
+      }
+#ifdef ENABLE_WASM_BULKMEM_OPS
+      if (fail) {
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_FIT,
+                                 "elem", "table");
+        return false;
+      }
+#endif
     }
   }
 
   if (memoryObj) {
+#ifdef ENABLE_WASM_BULKMEM_OPS
+    uint32_t memoryLength = memoryObj->volatileMemoryLength();
+#endif
     uint8_t* memoryBase =
         memoryObj->buffer().dataPointerEither().unwrap(/* memcpy */);
 
@@ -622,12 +660,29 @@ bool Module::initSegments(JSContext* cx, HandleWasmInstanceObject instanceObj,
         continue;
       }
 
-      // But apply active segments right now.
       uint32_t offset = EvaluateInitExpr(globalImportValues, seg->offset());
-      memcpy(memoryBase + offset, seg->bytes.begin(), seg->bytes.length());
+      uint32_t count = seg->bytes.length();
+#ifdef ENABLE_WASM_BULKMEM_OPS
+      bool fail = false;
+      if (offset > memoryLength) {
+        fail = true;
+        count = 0;
+      } else if (memoryLength - offset < count) {
+        fail = true;
+        count = memoryLength - offset;
+      }
+#endif
+      if (count) {
+        memcpy(memoryBase + offset, seg->bytes.begin(), count);
+      }
+#ifdef ENABLE_WASM_BULKMEM_OPS
+      if (fail) {
+        JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
+                                 JSMSG_WASM_BAD_FIT, "data", "memory");
+        return false;
+      }
+#endif
     }
-  } else {
-    MOZ_ASSERT(dataSegments_.empty());
   }
 
   return true;
@@ -1191,9 +1246,9 @@ bool Module::makeStructTypeDescrs(
   MOZ_CRASH("Should not have seen any struct types");
 #else
 
-#ifndef ENABLE_BINARYDATA
-#error "GC types require TypedObject"
-#endif
+#  ifndef ENABLE_TYPED_OBJECTS
+#    error "GC types require TypedObject"
+#  endif
 
   // Not just any prototype object will do, we must have the actual
   // StructTypePrototype.

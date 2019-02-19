@@ -20,9 +20,9 @@
 #include "nsIWidget.h"
 #include "nsContentUtils.h"
 #ifdef XP_MACOSX
-#include "mozilla/EventDispatcher.h"
-#include "mozilla/dom/Event.h"
-#include "nsFocusManager.h"
+#  include "mozilla/EventDispatcher.h"
+#  include "mozilla/dom/Event.h"
+#  include "nsFocusManager.h"
 #endif
 
 namespace mozilla {
@@ -87,7 +87,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED(
     HTMLObjectElement, nsGenericHTMLFormElement, imgINotificationObserver,
-    nsIRequestObserver, nsIStreamListener, nsIFrameLoaderOwner,
+    nsIRequestObserver, nsIStreamListener, nsFrameLoaderOwner,
     nsIObjectLoadingContent, nsIImageLoadingContent, nsIChannelEventSink,
     nsIConstraintValidation)
 

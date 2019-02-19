@@ -1,4 +1,4 @@
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 // Regression test for bug 370103 - crash when passing a null listener to
 // nsIChannel.asyncOpen
@@ -15,7 +15,7 @@ function run_test() {
 
   var exception = false;
   try {
-    channel.asyncOpen2(null);
+    channel.asyncOpen(null);
   }
   catch(e) {
     exception = true;

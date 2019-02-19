@@ -35,7 +35,7 @@ void ListNode::checkConsistency() const {
 
     tailNode = &last->pn_next;
   } else {
-    tailNode = &pn_u.list.head;
+    tailNode = &head_;
   }
   MOZ_ASSERT(tail() == tailNode);
   MOZ_ASSERT(count() == actualCount);
@@ -46,9 +46,9 @@ void ListNode::checkConsistency() const {
  * Allocate a ParseNode from parser's node freelist or, failing that, from
  * cx's temporary arena.
  */
-void* ParseNodeAllocator::allocNode() {
+void* ParseNodeAllocator::allocNode(size_t size) {
   LifoAlloc::AutoFallibleScope fallibleAllocator(&alloc);
-  void* p = alloc.alloc(sizeof(ParseNode));
+  void* p = alloc.alloc(size);
   if (!p) {
     ReportOutOfMemory(cx);
   }
@@ -78,7 +78,7 @@ ParseNode* ParseNode::appendOrCreateList(ParseNodeKind kind, ParseNode* left,
     // processed with a left fold because (+) is left-associative.
     //
     if (left->isKind(kind) &&
-        (kind == ParseNodeKind::PowExpr ? !left->pn_parens
+        (kind == ParseNodeKind::PowExpr ? !left->isInParens()
                                         : left->isBinaryOperation())) {
       ListNode* list = &left->as<ListNode>();
 
@@ -107,9 +107,9 @@ const ParseNodeArity js::frontend::ParseNodeKindArity[] = {
 #ifdef DEBUG
 
 static const char* const parseNodeNames[] = {
-#define STRINGIFY(name, _type) #name,
+#  define STRINGIFY(name, _type) #  name,
     FOR_EACH_PARSE_NODE_KIND(STRINGIFY)
-#undef STRINGIFY
+#  undef STRINGIFY
 };
 
 void frontend::DumpParseTree(ParseNode* pn, GenericPrinter& out, int indent) {
@@ -151,8 +151,11 @@ void ParseNode::dump(GenericPrinter& out, int indent) {
     case PN_TERNARY:
       as<TernaryNode>().dump(out, indent);
       return;
-    case PN_CODE:
-      as<CodeNode>().dump(out, indent);
+    case PN_FUNCTION:
+      as<FunctionNode>().dump(out, indent);
+      return;
+    case PN_MODULE:
+      as<ModuleNode>().dump(out, indent);
       return;
     case PN_LIST:
       as<ListNode>().dump(out, indent);
@@ -166,11 +169,9 @@ void ParseNode::dump(GenericPrinter& out, int indent) {
     case PN_NUMBER:
       as<NumericLiteral>().dump(out, indent);
       return;
-#ifdef ENABLE_BIGINT
     case PN_BIGINT:
       as<BigIntLiteral>().dump(out, indent);
       return;
-#endif
     case PN_REGEXP:
       as<RegExpLiteral>().dump(out, indent);
       return;
@@ -217,11 +218,9 @@ void NumericLiteral::dump(GenericPrinter& out, int indent) {
   }
 }
 
-#ifdef ENABLE_BIGINT
 void BigIntLiteral::dump(GenericPrinter& out, int indent) {
   out.printf("(%s)", parseNodeNames[size_t(getKind())]);
 }
-#endif
 
 void RegExpLiteral::dump(GenericPrinter& out, int indent) {
   out.printf("(%s)", parseNodeNames[size_t(getKind())]);
@@ -283,7 +282,15 @@ void TernaryNode::dump(GenericPrinter& out, int indent) {
   out.printf(")");
 }
 
-void CodeNode::dump(GenericPrinter& out, int indent) {
+void FunctionNode::dump(GenericPrinter& out, int indent) {
+  const char* name = parseNodeNames[size_t(getKind())];
+  out.printf("(%s ", name);
+  indent += strlen(name) + 2;
+  DumpParseTree(body(), out, indent);
+  out.printf(")");
+}
+
+void ModuleNode::dump(GenericPrinter& out, int indent) {
   const char* name = parseNodeNames[size_t(getKind())];
   out.printf("(%s ", name);
   indent += strlen(name) + 2;
@@ -421,22 +428,18 @@ TraceListNode::TraceListNode(js::gc::Cell* gcThing, TraceListNode* traceLink)
   MOZ_ASSERT(gcThing->isTenured());
 }
 
-#ifdef ENABLE_BIGINT
 BigIntBox* TraceListNode::asBigIntBox() {
   MOZ_ASSERT(isBigIntBox());
   return static_cast<BigIntBox*>(this);
 }
-#endif
 
 ObjectBox* TraceListNode::asObjectBox() {
   MOZ_ASSERT(isObjectBox());
   return static_cast<ObjectBox*>(this);
 }
 
-#ifdef ENABLE_BIGINT
 BigIntBox::BigIntBox(BigInt* bi, TraceListNode* traceLink)
     : TraceListNode(bi, traceLink) {}
-#endif
 
 ObjectBox::ObjectBox(JSObject* obj, TraceListNode* traceLink)
     : TraceListNode(obj, traceLink), emitLink(nullptr) {
@@ -478,8 +481,8 @@ bool js::frontend::IsAnonymousFunctionDefinition(ParseNode* pn) {
   // 14.1.12 (FunctionExpression).
   // 14.4.8 (Generatoression).
   // 14.6.8 (AsyncFunctionExpression)
-  if (pn->isKind(ParseNodeKind::Function) &&
-      !pn->as<CodeNode>().funbox()->function()->explicitName()) {
+  if (pn->is<FunctionNode>() &&
+      !pn->as<FunctionNode>().funbox()->function()->explicitName()) {
     return true;
   }
 

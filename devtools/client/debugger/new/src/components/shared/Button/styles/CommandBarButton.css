@@ -11,6 +11,7 @@
   position: relative;
   padding: 0px 5px;
   fill: currentColor;
+  min-width: 30px;
 }
 
 .command-bar-button:disabled {
@@ -20,6 +21,10 @@
 
 .command-bar-button:not(.disabled):hover {
   background: var(--theme-toolbar-background-hover);
+}
+
+.theme-dark .command-bar-button:not(.disabled):hover {
+  background: var(--theme-toolbar-hover);
 }
 
 :root.theme-dark .command-bar-button {

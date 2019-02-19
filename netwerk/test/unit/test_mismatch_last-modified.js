@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 var httpserver = new HttpServer();
 
 var ios;
@@ -73,7 +73,7 @@ XPCOMUtils.defineLazyGetter(this, "listener_2", function() {
       uri: "http://localhost:" + httpserver.identity.primaryPort + "/test1",
       loadUsingSystemPrincipal: true
     });
-    chan.asyncOpen2(listener_3);
+    chan.asyncOpen(listener_3);
     }
 };
 });
@@ -105,7 +105,7 @@ XPCOMUtils.defineLazyGetter(this, "listener_1", function() {
       uri: "http://localhost:" + httpserver.identity.primaryPort + "/test1",
       loadUsingSystemPrincipal: true
     });
-	  chan.asyncOpen2(listener_2);
+	  chan.asyncOpen(listener_2);
     }
 };
 });
@@ -125,7 +125,7 @@ function run_test() {
       uri: "http://localhost:" + port + "/test1",
       loadUsingSystemPrincipal: true
     });
-    chan.asyncOpen2(listener_1);
+    chan.asyncOpen(listener_1);
 
     do_test_pending();
 }

@@ -44,7 +44,7 @@ using mozilla::LookAndFeel;
                     (int)((c).blue * 255), (int)((c).alpha * 255)))
 
 #if !GTK_CHECK_VERSION(3, 12, 0)
-#define GTK_STATE_FLAG_LINK (static_cast<GtkStateFlags>(1 << 9))
+#  define GTK_STATE_FLAG_LINK (static_cast<GtkStateFlags>(1 << 9))
 #endif
 
 nsLookAndFeel::nsLookAndFeel()
@@ -673,6 +673,10 @@ nsresult nsLookAndFeel::GetIntImpl(IntID aID, int32_t& aResult) {
       EnsureInit();
       aResult = mCSDAvailable;
       break;
+    case eIntID_GTKCSDHideTitlebarByDefault:
+      EnsureInit();
+      aResult = mCSDHideTitlebarByDefault;
+      break;
     case eIntID_GTKCSDMaximizeButton:
       EnsureInit();
       aResult = mCSDMaximizeButton;
@@ -687,6 +691,10 @@ nsresult nsLookAndFeel::GetIntImpl(IntID aID, int32_t& aResult) {
       break;
     case eIntID_GTKCSDTransparentBackground:
       aResult = nsWindow::TopLevelWindowUseARGBVisual();
+      break;
+    case eIntID_GTKCSDReversedPlacement:
+      EnsureInit();
+      aResult = mCSDReversedPlacement;
       break;
     case eIntID_PrefersReducedMotion: {
       GtkSettings* settings;
@@ -759,18 +767,15 @@ static void GetSystemFontInfo(GtkStyleContext* aStyle, nsString* aFontName,
     // |size| is in pango-points, so convert to pixels.
     size *= float(gfxPlatformGtk::GetFontScaleDPI()) / POINTS_PER_INCH_FLOAT;
   }
-  // |size| is now pixels but not scaled for the hidpi displays,
-  // this needs to be done in GetFontImpl where the aDevPixPerCSSPixel
-  // parameter is provided.
 
+  // |size| is now pixels but not scaled for the hidpi displays,
   aFontStyle->size = size;
 
   pango_font_description_free(desc);
 }
 
 bool nsLookAndFeel::GetFontImpl(FontID aID, nsString& aFontName,
-                                gfxFontStyle& aFontStyle,
-                                float aDevPixPerCSSPixel) {
+                                gfxFontStyle& aFontStyle) {
   switch (aID) {
     case eFont_Menu:          // css2
     case eFont_PullDownMenu:  // css3
@@ -807,17 +812,17 @@ bool nsLookAndFeel::GetFontImpl(FontID aID, nsString& aFontName,
       aFontStyle = mDefaultFontStyle;
       break;
   }
+
   // Scale the font for the current monitor
   double scaleFactor = nsIWidget::DefaultScaleOverride();
   if (scaleFactor > 0) {
     aFontStyle.size *=
-        mozilla::widget::ScreenHelperGTK::GetGTKMonitorScaleFactor();
+        widget::ScreenHelperGTK::GetGTKMonitorScaleFactor() / scaleFactor;
   } else {
-    // Remove effect of font scale because it has been already applied in
-    // GetSystemFontInfo
-    aFontStyle.size *=
-        aDevPixPerCSSPixel / gfxPlatformGtk::GetFontScaleFactor();
+    // Convert gdk pixels to CSS pixels.
+    aFontStyle.size /= gfxPlatformGtk::GetFontScaleFactor();
   }
+
   return true;
 }
 
@@ -1107,6 +1112,7 @@ void nsLookAndFeel::EnsureInit() {
 
   mCSDAvailable =
       nsWindow::GetSystemCSDSupportLevel() != nsWindow::CSD_SUPPORT_NONE;
+  mCSDHideTitlebarByDefault = nsWindow::HideTitlebarByDefault();
 
   mCSDCloseButton = false;
   mCSDMinimizeButton = false;
@@ -1116,8 +1122,8 @@ void nsLookAndFeel::EnsureInit() {
   // as -moz-gtk* media features.
   WidgetNodeType buttonLayout[TOOLBAR_BUTTONS];
 
-  int activeButtons =
-      GetGtkHeaderBarButtonLayout(buttonLayout, TOOLBAR_BUTTONS);
+  int activeButtons = GetGtkHeaderBarButtonLayout(buttonLayout, TOOLBAR_BUTTONS,
+                                                  &mCSDReversedPlacement);
   for (int i = 0; i < activeButtons; i++) {
     switch (buttonLayout[i]) {
       case MOZ_GTK_HEADER_BAR_BUTTON_MINIMIZE:

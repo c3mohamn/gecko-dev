@@ -17,11 +17,13 @@ class nsIInputStream;
 class nsISHEntry;
 class nsIURI;
 class nsIDocShell;
+class nsIChildChannel;
+class nsIReferrerInfo;
 class OriginAttibutes;
 namespace mozilla {
 namespace dom {
 class DocShellLoadStateInit;
-}
+}  // namespace dom
 }  // namespace mozilla
 
 /**
@@ -35,11 +37,14 @@ class nsDocShellLoadState final {
   explicit nsDocShellLoadState(nsIURI* aURI);
   explicit nsDocShellLoadState(mozilla::dom::DocShellLoadStateInit& aLoadState);
 
+  static nsresult CreateFromPendingChannel(nsIChildChannel* aPendingChannel,
+                                           nsDocShellLoadState** aResult);
+
   // Getters and Setters
 
-  nsIURI* Referrer() const;
+  nsIReferrerInfo* GetReferrerInfo() const;
 
-  void SetReferrer(nsIURI* aReferrer);
+  void SetReferrerInfo(nsIReferrerInfo* aReferrerInfo);
 
   nsIURI* URI() const;
 
@@ -109,14 +114,6 @@ class nsDocShellLoadState final {
 
   void SetHeadersStream(nsIInputStream* aHeadersStream);
 
-  bool SendReferrer() const;
-
-  void SetSendReferrer(bool aSendReferrer);
-
-  mozilla::net::ReferrerPolicy ReferrerPolicy() const;
-
-  void SetReferrerPolicy(mozilla::net::ReferrerPolicy aReferrerPolicy);
-
   bool IsSrcdocLoad() const;
 
   const nsString& SrcdocData() const;
@@ -182,6 +179,10 @@ class nsDocShellLoadState final {
     return mIsFromProcessingFrameAttributes;
   }
 
+  nsIChildChannel* GetPendingRedirectedChannel() {
+    return mPendingRedirectedChannel;
+  }
+
   // When loading a document through nsDocShell::LoadURI(), a special set of
   // flags needs to be set based on other values in nsDocShellLoadState. This
   // function calculates those flags, before the LoadState is passed to
@@ -197,7 +198,7 @@ class nsDocShellLoadState final {
 
  protected:
   // This is the referrer for the load.
-  nsCOMPtr<nsIURI> mReferrer;
+  nsCOMPtr<nsIReferrerInfo> mReferrerInfo;
 
   // The URI we are navigating to. Will not be null once set.
   nsCOMPtr<nsIURI> mURI;
@@ -265,14 +266,6 @@ class nsDocShellLoadState final {
   // element loading its original src (or srcdoc) attribute.
   bool mOriginalFrameSrc;
 
-  // True if the referrer should be sent, false if it shouldn't be sent, even if
-  // it's available. This attribute defaults to true.
-  bool mSendReferrer;
-
-  // Referrer policy for the load. This attribute holds one of the values
-  // (REFERRER_POLICY_*) defined in nsIHttpChannel.
-  mozilla::net::ReferrerPolicy mReferrerPolicy;
-
   // Contains a load type as specified by the nsDocShellLoadTypes::load*
   // constants
   uint32_t mLoadType;
@@ -320,6 +313,10 @@ class nsDocShellLoadState final {
   // This will be true if this load is triggered by attribute changes.
   // See nsILoadInfo.isFromProcessingFrameAttributes
   bool mIsFromProcessingFrameAttributes;
+
+  // If set, a pending cross-process redirected channel should be used to
+  // perform the load. The channel will be stored in this value.
+  nsCOMPtr<nsIChildChannel> mPendingRedirectedChannel;
 };
 
 #endif /* nsDocShellLoadState_h__ */

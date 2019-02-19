@@ -6,8 +6,8 @@
 
 "use strict";
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var baseURL;
 const kResponseTimeoutPref = "network.http.response.timeout";
@@ -59,7 +59,7 @@ function testTimeout(timeoutEnabled, expectResponse) {
   var chan = NetUtil.newChannel({uri: baseURL, loadUsingSystemPrincipal: true})
                     .QueryInterface(Ci.nsIHttpChannel);
   var listener = new TimeoutListener(expectResponse);
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function testTimeoutEnabled() {

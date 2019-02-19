@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const BUGID = "369787";
 var server = null;
@@ -60,7 +60,7 @@ function run_test() {
     loadUsingSystemPrincipal: true
   });
   channel.QueryInterface(Ci.nsIHttpChannel);
-  channel.asyncOpen2(new TestListener());
+  channel.asyncOpen(new TestListener());
 
   do_test_pending();
 }

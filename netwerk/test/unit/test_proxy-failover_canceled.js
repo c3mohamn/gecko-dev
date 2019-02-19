@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var httpServer = null;
 
@@ -49,6 +49,6 @@ function run_test()
   var chan = make_channel("http://localhost:" +
                           httpServer.identity.primaryPort + "/content");
   chan.notificationCallbacks = nc;
-  chan.asyncOpen2(new ChannelListener(finish_test, null, CL_EXPECT_FAILURE));
+  chan.asyncOpen(new ChannelListener(finish_test, null, CL_EXPECT_FAILURE));
   do_test_pending();
 }

@@ -13,37 +13,37 @@
 #ifndef mozilla_dom_Element_h__
 #define mozilla_dom_Element_h__
 
-#include "mozilla/dom/FragmentOrElement.h"  // for base class
-#include "nsChangeHint.h"                   // for enum
-#include "mozilla/EventStates.h"            // for member
-#include "mozilla/RustCell.h"
-#include "mozilla/dom/DirectionalityUtils.h"
-#include "nsILinkHandler.h"
-#include "nsINodeList.h"
-#include "nsNodeUtils.h"
 #include "AttrArray.h"
-#include "mozilla/FlushType.h"
-#include "nsDOMAttributeMap.h"
-#include "nsPresContext.h"
-#include "mozilla/CORSMode.h"
-#include "mozilla/Attributes.h"
-#include "nsIScrollableFrame.h"
-#include "mozilla/dom/Attr.h"
-#include "nsISMILAttr.h"
-#include "mozilla/dom/DOMRect.h"
+#include "DOMIntersectionObserver.h"
 #include "nsAttrValue.h"
 #include "nsAttrValueInlines.h"
+#include "nsChangeHint.h"
+#include "nsContentUtils.h"
+#include "nsDOMAttributeMap.h"
+#include "nsILinkHandler.h"
+#include "nsINodeList.h"
+#include "nsIScrollableFrame.h"
+#include "nsNodeUtils.h"
+#include "nsPresContext.h"
+#include "Units.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/CORSMode.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/EventStates.h"
+#include "mozilla/FlushType.h"
+#include "mozilla/RustCell.h"
+#include "mozilla/SMILAttr.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/dom/Attr.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/DirectionalityUtils.h"
+#include "mozilla/dom/FragmentOrElement.h"
+#include "mozilla/dom/DOMRect.h"
 #include "mozilla/dom/DOMTokenListSupportedTokens.h"
-#include "mozilla/dom/WindowBinding.h"
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/PointerEventHandler.h"
-#include "mozilla/UniquePtr.h"
-#include "Units.h"
-#include "DOMIntersectionObserver.h"
-#include "nsContentUtils.h"
+#include "mozilla/dom/WindowBinding.h"
 
 class mozAutoDocUpdate;
 class nsIFrame;
@@ -58,7 +58,6 @@ class nsFocusManager;
 class nsGlobalWindowInner;
 class nsGlobalWindowOuter;
 class nsDOMCSSAttributeDeclaration;
-class nsISMILAttr;
 class nsDOMStringMap;
 struct ServoNodeData;
 
@@ -68,6 +67,7 @@ class nsIDOMXULContainerItemElement;
 class nsIDOMXULControlElement;
 class nsIDOMXULMenuListElement;
 class nsIDOMXULMultiSelectControlElement;
+class nsIDOMXULRadioGroupElement;
 class nsIDOMXULRelatedElement;
 class nsIDOMXULSelectControlElement;
 class nsIDOMXULSelectControlItemElement;
@@ -133,7 +133,7 @@ enum {
 ASSERT_NODE_FLAGS_SPACE(ELEMENT_TYPE_SPECIFIC_BITS_OFFSET);
 
 namespace mozilla {
-enum class CSSPseudoElementType : uint8_t;
+enum class PseudoStyleType : uint8_t;
 class EventChainPostVisitor;
 class EventChainPreVisitor;
 class EventChainVisitor;
@@ -347,19 +347,18 @@ class Element : public FragmentOrElement {
   DeclarationBlock* GetSMILOverrideStyleDeclaration();
 
   /**
-   * Set the SMIL override style declaration for this element. If
-   * aNotify is true, this method will notify the document's pres
-   * context, so that the style changes will be noticed.
+   * Set the SMIL override style declaration for this element. This method will
+   * notify the document's pres context, so that the style changes will be
+   * noticed.
    */
-  nsresult SetSMILOverrideStyleDeclaration(DeclarationBlock* aDeclaration,
-                                           bool aNotify);
+  nsresult SetSMILOverrideStyleDeclaration(DeclarationBlock* aDeclaration);
 
   /**
-   * Returns a new nsISMILAttr that allows the caller to animate the given
+   * Returns a new SMILAttr that allows the caller to animate the given
    * attribute on this element.
    */
-  virtual UniquePtr<nsISMILAttr> GetAnimatedAttr(int32_t aNamespaceID,
-                                                 nsAtom* aName) {
+  virtual UniquePtr<SMILAttr> GetAnimatedAttr(int32_t aNamespaceID,
+                                              nsAtom* aName) {
     return nullptr;
   }
 
@@ -1081,19 +1080,19 @@ class Element : public FragmentOrElement {
   already_AddRefed<nsIHTMLCollection> GetElementsByClassName(
       const nsAString& aClassNames);
 
-  CSSPseudoElementType GetPseudoElementType() const {
+  PseudoStyleType GetPseudoElementType() const {
     nsresult rv = NS_OK;
     auto raw = GetProperty(nsGkAtoms::pseudoProperty, &rv);
     if (rv == NS_PROPTABLE_PROP_NOT_THERE) {
-      return CSSPseudoElementType::NotPseudo;
+      return PseudoStyleType::NotPseudo;
     }
-    return CSSPseudoElementType(reinterpret_cast<uintptr_t>(raw));
+    return PseudoStyleType(reinterpret_cast<uintptr_t>(raw));
   }
 
-  void SetPseudoElementType(CSSPseudoElementType aPseudo) {
-    static_assert(sizeof(CSSPseudoElementType) <= sizeof(uintptr_t),
+  void SetPseudoElementType(PseudoStyleType aPseudo) {
+    static_assert(sizeof(PseudoStyleType) <= sizeof(uintptr_t),
                   "Need to be able to store this in a void*");
-    MOZ_ASSERT(aPseudo != CSSPseudoElementType::NotPseudo);
+    MOZ_ASSERT(PseudoStyle::IsPseudoElement(aPseudo));
     SetProperty(nsGkAtoms::pseudoProperty, reinterpret_cast<void*>(aPseudo));
   }
 
@@ -1218,7 +1217,7 @@ class Element : public FragmentOrElement {
   void AttachAndSetUAShadowRoot();
 
   // Dispatch an event to UAWidgetsChild, triggering construction
-  // or onattributechange callback on the existing widget.
+  // or onchange callback on the existing widget.
   void NotifyUAWidgetSetupOrChange();
 
   enum class UnattachShadowRoot {
@@ -1252,11 +1251,6 @@ class Element : public FragmentOrElement {
   MOZ_CAN_RUN_SCRIPT void ScrollTo(const ScrollToOptions& aOptions);
   MOZ_CAN_RUN_SCRIPT void ScrollBy(double aXScrollDif, double aYScrollDif);
   MOZ_CAN_RUN_SCRIPT void ScrollBy(const ScrollToOptions& aOptions);
-  /* Scrolls without flushing the layout.
-   * aDx is the x offset, aDy the y offset in CSS pixels.
-   * Returns true if we actually scrolled.
-   */
-  MOZ_CAN_RUN_SCRIPT bool ScrollByNoFlush(int32_t aDx, int32_t aDy);
   MOZ_CAN_RUN_SCRIPT int32_t ScrollTop();
   MOZ_CAN_RUN_SCRIPT void SetScrollTop(int32_t aScrollTop);
   MOZ_CAN_RUN_SCRIPT int32_t ScrollLeft();
@@ -1326,7 +1320,7 @@ class Element : public FragmentOrElement {
   void GetAnimations(const AnimationFilter& filter,
                      nsTArray<RefPtr<Animation>>& aAnimations);
   static void GetAnimationsUnsorted(Element* aElement,
-                                    CSSPseudoElementType aPseudoType,
+                                    PseudoStyleType aPseudoType,
                                     nsTArray<RefPtr<Animation>>& aAnimations);
 
   virtual void GetInnerHTML(nsAString& aInnerHTML, OOMReporter& aError);
@@ -1384,17 +1378,6 @@ class Element : public FragmentOrElement {
   static nsresult DispatchEvent(nsPresContext* aPresContext,
                                 WidgetEvent* aEvent, nsIContent* aTarget,
                                 bool aFullDispatch, nsEventStatus* aStatus);
-
-  /**
-   * Get the primary frame for this content with flushing
-   *
-   * @param aType the kind of flush to do, typically FlushType::Frames or
-   *              FlushType::Layout
-   * @return the primary frame
-   */
-  nsIFrame* GetPrimaryFrame(FlushType aType);
-  // Work around silly C++ name hiding stuff
-  nsIFrame* GetPrimaryFrame() const { return nsIContent::GetPrimaryFrame(); }
 
   bool IsDisplayContents() const {
     return HasServoData() && Servo_Element_IsDisplayContents(this);
@@ -1603,6 +1586,7 @@ class Element : public FragmentOrElement {
   already_AddRefed<nsIDOMXULMenuListElement> AsXULMenuList();
   already_AddRefed<nsIDOMXULMultiSelectControlElement>
   AsXULMultiSelectControl();
+  already_AddRefed<nsIDOMXULRadioGroupElement> AsXULRadioGroup();
   already_AddRefed<nsIDOMXULRelatedElement> AsXULRelated();
   already_AddRefed<nsIDOMXULSelectControlElement> AsXULSelectControl();
   already_AddRefed<nsIDOMXULSelectControlItemElement> AsXULSelectControlItem();

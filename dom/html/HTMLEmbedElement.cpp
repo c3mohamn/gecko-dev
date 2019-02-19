@@ -16,8 +16,8 @@
 #include "nsIWidget.h"
 #include "nsContentUtils.h"
 #ifdef XP_MACOSX
-#include "mozilla/EventDispatcher.h"
-#include "mozilla/dom/Event.h"
+#  include "mozilla/EventDispatcher.h"
+#  include "mozilla/dom/Event.h"
 #endif
 #include "mozilla/dom/HTMLObjectElement.h"
 
@@ -54,7 +54,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED(
     HTMLEmbedElement, nsGenericHTMLElement, nsIRequestObserver,
-    nsIStreamListener, nsIFrameLoaderOwner, nsIObjectLoadingContent,
+    nsIStreamListener, nsFrameLoaderOwner, nsIObjectLoadingContent,
     imgINotificationObserver, nsIImageLoadingContent, nsIChannelEventSink)
 
 NS_IMPL_ELEMENT_CLONE(HTMLEmbedElement)

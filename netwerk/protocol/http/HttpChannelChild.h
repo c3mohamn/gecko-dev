@@ -92,9 +92,7 @@ class HttpChannelChild final : public PHttpChannelChild,
   NS_IMETHOD Resume() override;
   // nsIChannel
   NS_IMETHOD GetSecurityInfo(nsISupports** aSecurityInfo) override;
-  NS_IMETHOD AsyncOpen(nsIStreamListener* listener,
-                       nsISupports* aContext) override;
-  NS_IMETHOD AsyncOpen2(nsIStreamListener* aListener) override;
+  NS_IMETHOD AsyncOpen(nsIStreamListener* aListener) override;
 
   // HttpBaseChannel::nsIHttpChannel
   NS_IMETHOD SetReferrerWithPolicy(nsIURI* referrer,
@@ -261,9 +259,10 @@ class HttpChannelChild final : public PHttpChannelChild,
   void ProcessOnStatus(const nsresult& aStatus);
   void ProcessFlushedForDiversion();
   void ProcessDivertMessages();
-  void ProcessNotifyTrackingProtectionDisabled();
+  void ProcessNotifyChannelClassifierProtectionDisabled(
+      uint32_t aAcceptedReason);
   void ProcessNotifyCookieAllowed();
-  void ProcessNotifyTrackingCookieBlocked(uint32_t aRejectedReason);
+  void ProcessNotifyCookieBlocked(uint32_t aRejectedReason);
   void ProcessNotifyTrackingResource(bool aIsThirdParty);
   void ProcessNotifyFlashPluginStateChanged(
       nsIHttpChannel::FlashPluginState aState);

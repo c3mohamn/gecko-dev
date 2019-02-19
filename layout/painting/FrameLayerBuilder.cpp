@@ -521,13 +521,13 @@ class PaintedLayerData {
    */
   nsCString mLog;
 
-#define FLB_LOG_PAINTED_LAYER_DECISION(pld, ...) \
-  if (gfxPrefs::LayersDumpDecision()) {          \
-    pld->mLog.AppendPrintf("\t\t\t\t");          \
-    pld->mLog.AppendPrintf(__VA_ARGS__);         \
-  }
+#  define FLB_LOG_PAINTED_LAYER_DECISION(pld, ...) \
+    if (gfxPrefs::LayersDumpDecision()) {          \
+      pld->mLog.AppendPrintf("\t\t\t\t");          \
+      pld->mLog.AppendPrintf(__VA_ARGS__);         \
+    }
 #else
-#define FLB_LOG_PAINTED_LAYER_DECISION(...)
+#  define FLB_LOG_PAINTED_LAYER_DECISION(...)
 #endif
 
   /**
@@ -1661,6 +1661,14 @@ class FLBDisplayItemIterator : protected FlattenedDisplayItemIterator {
     }
 
     const DisplayItemType type = mNext->GetType();
+
+    if (type == DisplayItemType::TYPE_SVG_WRAPPER) {
+      // We mark SetContainsSVG for the CONTENT_FRAME_TIME_WITH_SVG metric
+      if (RefPtr<LayerManager> lm = mBuilder->GetWidgetLayerManager()) {
+        lm->SetContainsSVG(true);
+      }
+    }
+
     if (type != DisplayItemType::TYPE_OPACITY &&
         type != DisplayItemType::TYPE_TRANSFORM) {
       return true;
@@ -4385,7 +4393,8 @@ static void ProcessDisplayItemMarker(DisplayItemEntryType aMarker,
  * of ContainerState::Finish.
  */
 void ContainerState::ProcessDisplayItems(nsDisplayList* aList) {
-  AUTO_PROFILER_LABEL("ContainerState::ProcessDisplayItems", GRAPHICS);
+  AUTO_PROFILER_LABEL("ContainerState::ProcessDisplayItems",
+                      GRAPHICS_LayerBuilding);
 
   nsPoint topLeft(0, 0);
 
@@ -4408,6 +4417,7 @@ void ContainerState::ProcessDisplayItems(nsDisplayList* aList) {
   // AGR and ASR for the container item that was flattened.
   AnimatedGeometryRoot* containerAGR = nullptr;
   const ActiveScrolledRoot* containerASR = nullptr;
+  nsIFrame* containerReferenceFrame = nullptr;
   RefPtr<TransformClipNode> transformNode = nullptr;
 
   const auto InTransform = [&]() { return transformNode; };
@@ -5036,7 +5046,8 @@ void ContainerState::ProcessDisplayItems(nsDisplayList* aList) {
         if (!paintedLayerData->mLayer) {
           // Try to recycle the old layer of this display item.
           RefPtr<PaintedLayer> layer = AttemptToRecyclePaintedLayer(
-              itemAGR, item, topLeft, referenceFrame);
+              itemAGR, item, topLeft,
+              inEffect ? containerReferenceFrame : referenceFrame);
           if (layer) {
             paintedLayerData->mLayer = layer;
 
@@ -5058,14 +5069,16 @@ void ContainerState::ProcessDisplayItems(nsDisplayList* aList) {
           selectedLayer = nullptr;
           containerAGR = nullptr;
           containerASR = nullptr;
+          containerReferenceFrame = nullptr;
         }
       };
 
       const auto SelectLayerIfNeeded = [&]() {
         if (!selectedLayer) {
           selectedLayer = paintedLayerData;
-          containerAGR = item->GetAnimatedGeometryRoot();
-          containerASR = item->GetActiveScrolledRoot();
+          containerAGR = itemAGR;
+          containerASR = itemASR;
+          containerReferenceFrame = const_cast<nsIFrame*>(referenceFrame);
         }
       };
 
@@ -6929,10 +6942,11 @@ void FrameLayerBuilder::PaintItems(std::vector<AssignedDisplayItem>& aItems,
     }
 
 #ifdef MOZ_DUMP_PAINTING
-    AUTO_PROFILER_LABEL_DYNAMIC_CSTR("FrameLayerBuilder::PaintItems", GRAPHICS,
-                                     item->Name());
+    AUTO_PROFILER_LABEL_DYNAMIC_CSTR("FrameLayerBuilder::PaintItems",
+                                     GRAPHICS_Rasterization, item->Name());
 #else
-    AUTO_PROFILER_LABEL("FrameLayerBuilder::PaintItems", GRAPHICS);
+    AUTO_PROFILER_LABEL("FrameLayerBuilder::PaintItems",
+                        GRAPHICS_Rasterization);
 #endif
 
     MOZ_ASSERT((opacityLevel == 0 && !cdi.mHasOpacity) ||
@@ -7105,7 +7119,8 @@ static void DrawForcedBackgroundColor(DrawTarget& aDrawTarget,
     void* aCallbackData) {
   DrawTarget& aDrawTarget = *aContext->GetDrawTarget();
 
-  AUTO_PROFILER_LABEL("FrameLayerBuilder::DrawPaintedLayer", GRAPHICS);
+  AUTO_PROFILER_LABEL("FrameLayerBuilder::DrawPaintedLayer",
+                      GRAPHICS_Rasterization);
 
   nsDisplayListBuilder* builder =
       static_cast<nsDisplayListBuilder*>(aCallbackData);

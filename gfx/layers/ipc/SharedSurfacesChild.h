@@ -15,6 +15,7 @@
 #include "mozilla/gfx/UserData.h"              // for UserDataKey
 #include "mozilla/webrender/WebRenderTypes.h"  // for wr::ImageKey
 #include "nsTArray.h"                          // for AutoTArray
+#include "ImageTypes.h"                        // for ContainerProducerID
 
 namespace mozilla {
 namespace layers {
@@ -72,6 +73,16 @@ class SharedSurfacesChild final {
                         wr::ImageKey& aKey);
 
   /**
+   * Request that the surface be mapped into the compositor thread's memory
+   * space, and a valid ImageKey be generated for it for use with WebRender.
+   * This must be called from the main thread.
+   */
+  static nsresult Share(gfx::SourceSurface* aSurface,
+                        RenderRootStateManager* aManager,
+                        wr::IpcResourceUpdateQueue& aResources,
+                        wr::ImageKey& aKey);
+
+  /**
    * Request that the first surface in the image container's current images be
    * mapped into the compositor thread's memory space, and a valid ImageKey be
    * generated for it for use with WebRender. If a different method should be
@@ -81,7 +92,7 @@ class SharedSurfacesChild final {
   static nsresult Share(ImageContainer* aContainer,
                         RenderRootStateManager* aManager,
                         wr::IpcResourceUpdateQueue& aResources,
-                        wr::ImageKey& aKey);
+                        wr::ImageKey& aKey, ContainerProducerID aProducerId);
 
   /**
    * Get the external ID, if any, bound to the shared surface. Used for memory

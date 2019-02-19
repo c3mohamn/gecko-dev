@@ -17,8 +17,8 @@
 // 4. When the server receive all 6 requests, check if the order in |responseQueue| is
 //    equal to |transactionQueue| by comparing the value of X-ID.
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var server = new HttpServer();
 server.start(-1);
@@ -59,7 +59,7 @@ function createHttpRequest(requestId, priority, isBlocking, callback) {
     var cos = chan.QueryInterface(Ci.nsIClassOfService);
     cos.addClassFlags(Ci.nsIClassOfService.Leader);
   }
-  chan.asyncOpen2(listner);
+  chan.asyncOpen(listner);
   log("Create http request id=" + requestId);
 }
 

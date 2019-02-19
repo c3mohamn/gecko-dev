@@ -71,9 +71,9 @@ static bool CheckUsesAreFloat32Consumers(const MInstruction* ins) {
 #ifdef JS_JITSPEW
 static const char* OpcodeName(MDefinition::Opcode op) {
   static const char* const names[] = {
-#define NAME(x) #x,
+#  define NAME(x) #  x,
       MIR_OPCODE_LIST(NAME)
-#undef NAME
+#  undef NAME
   };
   return names[unsigned(op)];
 }
@@ -457,33 +457,6 @@ static bool MaybeCallable(CompilerConstraintList* constraints,
   }
 
   return types->maybeCallable(constraints);
-}
-
-/* static */ const char* AliasSet::Name(size_t flag) {
-  switch (flag) {
-    case 0:
-      return "ObjectFields";
-    case 1:
-      return "Element";
-    case 2:
-      return "UnboxedElement";
-    case 3:
-      return "DynamicSlot";
-    case 4:
-      return "FixedSlot";
-    case 5:
-      return "DOMProperty";
-    case 6:
-      return "FrameArgument";
-    case 7:
-      return "WasmGlobalVar";
-    case 8:
-      return "WasmHeap";
-    case 9:
-      return "TypedArrayLength";
-    default:
-      MOZ_CRASH("Unknown flag");
-  }
 }
 
 void MTest::cacheOperandMightEmulateUndefined(
@@ -966,6 +939,9 @@ MConstant::MConstant(TempAllocator& alloc, const js::Value& vp,
     case MIRType::Symbol:
       payload_.sym = vp.toSymbol();
       break;
+    case MIRType::BigInt:
+      payload_.bi = vp.toBigInt();
+      break;
     case MIRType::Object:
       payload_.obj = &vp.toObject();
       // Create a singleton type set for the object. This isn't necessary for
@@ -1024,18 +1000,18 @@ void MConstant::assertInitializedPayload() const {
   switch (type()) {
     case MIRType::Int32:
     case MIRType::Float32:
-#if MOZ_LITTLE_ENDIAN
+#  if MOZ_LITTLE_ENDIAN
       MOZ_ASSERT((payload_.asBits >> 32) == 0);
-#else
+#  else
       MOZ_ASSERT((payload_.asBits << 32) == 0);
-#endif
+#  endif
       break;
     case MIRType::Boolean:
-#if MOZ_LITTLE_ENDIAN
+#  if MOZ_LITTLE_ENDIAN
       MOZ_ASSERT((payload_.asBits >> 1) == 0);
-#else
+#  else
       MOZ_ASSERT((payload_.asBits & ~(1ULL << 56)) == 0);
-#endif
+#  endif
       break;
     case MIRType::Double:
     case MIRType::Int64:
@@ -1043,11 +1019,12 @@ void MConstant::assertInitializedPayload() const {
     case MIRType::String:
     case MIRType::Object:
     case MIRType::Symbol:
-#if MOZ_LITTLE_ENDIAN
+    case MIRType::BigInt:
+#  if MOZ_LITTLE_ENDIAN
       MOZ_ASSERT_IF(JS_BITS_PER_WORD == 32, (payload_.asBits >> 32) == 0);
-#else
+#  else
       MOZ_ASSERT_IF(JS_BITS_PER_WORD == 32, (payload_.asBits << 32) == 0);
-#endif
+#  endif
       break;
     default:
       MOZ_ASSERT(IsNullOrUndefined(type()) || IsMagicType(type()));
@@ -1134,6 +1111,9 @@ void MConstant::printOpcode(GenericPrinter& out) const {
     case MIRType::Symbol:
       out.printf("symbol at %p", (void*)toSymbol());
       break;
+    case MIRType::BigInt:
+      out.printf("BigInt at %p", (void*)toBigInt());
+      break;
     case MIRType::String:
       out.printf("string %p", (void*)toString());
       break;
@@ -1195,6 +1175,8 @@ Value MConstant::toJSValue() const {
       return StringValue(toString());
     case MIRType::Symbol:
       return SymbolValue(toSymbol());
+    case MIRType::BigInt:
+      return BigIntValue(toBigInt());
     case MIRType::Object:
       return ObjectValue(toObject());
     case MIRType::MagicOptimizedArguments:
@@ -1235,6 +1217,9 @@ bool MConstant::valueToBoolean(bool* res) const {
       return true;
     case MIRType::Symbol:
       *res = true;
+      return true;
+    case MIRType::BigInt:
+      *res = !toBigInt()->isZero();
       return true;
     case MIRType::String:
       *res = toString()->length() != 0;
@@ -1777,6 +1762,9 @@ void MUnbox::printOpcode(GenericPrinter& out) const {
     case MIRType::Symbol:
       out.printf("to Symbol");
       break;
+    case MIRType::BigInt:
+      out.printf("to BigInt");
+      break;
     case MIRType::Object:
       out.printf("to Object");
       break;
@@ -2255,6 +2243,7 @@ bool jit::TypeSetIncludes(TypeSet* types, MIRType input, TypeSet* inputTypes) {
     case MIRType::Float32:
     case MIRType::String:
     case MIRType::Symbol:
+    case MIRType::BigInt:
     case MIRType::MagicOptimizedArguments:
       return types->hasType(
           TypeSet::PrimitiveType(ValueTypeFromMIRType(input)));
@@ -2515,8 +2504,10 @@ MDefinition* MBinaryBitwiseInstruction::foldUnnecessaryBitop() {
 void MBinaryBitwiseInstruction::infer(BaselineInspector*, jsbytecode*) {
   if (getOperand(0)->mightBeType(MIRType::Object) ||
       getOperand(0)->mightBeType(MIRType::Symbol) ||
+      getOperand(0)->mightBeType(MIRType::BigInt) ||
       getOperand(1)->mightBeType(MIRType::Object) ||
-      getOperand(1)->mightBeType(MIRType::Symbol)) {
+      getOperand(1)->mightBeType(MIRType::Symbol) ||
+      getOperand(1)->mightBeType(MIRType::BigInt)) {
     specialization_ = MIRType::None;
     setResultType(MIRType::Value);
   } else {
@@ -2540,7 +2531,9 @@ void MShiftInstruction::infer(BaselineInspector*, jsbytecode*) {
   if (getOperand(0)->mightBeType(MIRType::Object) ||
       getOperand(1)->mightBeType(MIRType::Object) ||
       getOperand(0)->mightBeType(MIRType::Symbol) ||
-      getOperand(1)->mightBeType(MIRType::Symbol)) {
+      getOperand(1)->mightBeType(MIRType::Symbol) ||
+      getOperand(0)->mightBeType(MIRType::BigInt) ||
+      getOperand(1)->mightBeType(MIRType::BigInt)) {
     specialization_ = MIRType::None;
     setResultType(MIRType::Value);
   } else {
@@ -2553,7 +2546,9 @@ void MUrsh::infer(BaselineInspector* inspector, jsbytecode* pc) {
   if (getOperand(0)->mightBeType(MIRType::Object) ||
       getOperand(1)->mightBeType(MIRType::Object) ||
       getOperand(0)->mightBeType(MIRType::Symbol) ||
-      getOperand(1)->mightBeType(MIRType::Symbol)) {
+      getOperand(1)->mightBeType(MIRType::Symbol) ||
+      getOperand(0)->mightBeType(MIRType::BigInt) ||
+      getOperand(1)->mightBeType(MIRType::BigInt)) {
     specialization_ = MIRType::None;
     setResultType(MIRType::Value);
     return;
@@ -2764,23 +2759,6 @@ MBinaryArithInstruction* MBinaryArithInstruction::New(TempAllocator& alloc,
   }
 }
 
-void MBinaryArithInstruction::setNumberSpecialization(
-    TempAllocator& alloc, BaselineInspector* inspector, jsbytecode* pc) {
-  setSpecialization(MIRType::Double);
-
-  // Try to specialize as int32.
-  if (getOperand(0)->type() == MIRType::Int32 &&
-      getOperand(1)->type() == MIRType::Int32) {
-    bool seenDouble = inspector->hasSeenDoubleResult(pc);
-
-    // Use int32 specialization if the operation doesn't overflow on its
-    // constant operands and if the operation has never overflowed.
-    if (!seenDouble && !constantDoubleResult(alloc)) {
-      setInt32Specialization();
-    }
-  }
-}
-
 bool MBinaryArithInstruction::constantDoubleResult(TempAllocator& alloc) {
   bool typeChange = false;
   EvaluateConstantOperands(alloc, this, &typeChange);
@@ -2961,6 +2939,9 @@ void MMinMax::trySpecializeFloat32(TempAllocator& alloc) {
 }
 
 MDefinition* MMinMax::foldsTo(TempAllocator& alloc) {
+  if (lhs() == rhs()) {
+    return lhs();
+  }
   if (!lhs()->isConstant() && !rhs()->isConstant()) {
     return this;
   }
@@ -3025,13 +3006,15 @@ MDefinition* MMinMax::foldsTo(TempAllocator& alloc) {
     }
   }
 
-  if (operand->isArrayLength() && constant->type() == MIRType::Int32) {
+  if ((operand->isArrayLength() || operand->isTypedArrayLength()) &&
+      constant->type() == MIRType::Int32) {
     MOZ_ASSERT(operand->type() == MIRType::Int32);
 
-    // max(array.length, 0) = array.length
-    // ArrayLength is always >= 0, so just return it.
-    if (isMax() && constant->toInt32() <= 0) {
-      return operand;
+    // (Typed)ArrayLength is always >= 0.
+    // max(array.length, cte <= 0) = array.length
+    // min(array.length, cte <= 0) = cte
+    if (constant->toInt32() <= 0) {
+      return isMax() ? operand : constant;
     }
   }
 
@@ -3496,7 +3479,7 @@ MCompare::CompareType MCompare::determineCompareType(JSOp op, MDefinition* left,
     return Compare_String;
   }
 
-  // Handle symbol comparisons. (Relaational compare will throw)
+  // Handle symbol comparisons. (Relational compare will throw)
   if (!relationalEq && lhs == MIRType::Symbol && rhs == MIRType::Symbol) {
     return Compare_Symbol;
   }
@@ -3588,6 +3571,9 @@ MDefinition* MTypeOf::foldsTo(TempAllocator& alloc) {
       break;
     case MIRType::Symbol:
       type = JSTYPE_SYMBOL;
+      break;
+    case MIRType::BigInt:
+      type = JSTYPE_BIGINT;
       break;
     case MIRType::Null:
       type = JSTYPE_OBJECT;
@@ -3848,6 +3834,21 @@ bool MResumePoint::isObservableOperand(size_t index) const {
 
 bool MResumePoint::isRecoverableOperand(MUse* u) const {
   return block()->info().isRecoverableOperand(indexOf(u));
+}
+
+MDefinition* MToNumeric::foldsTo(TempAllocator& alloc) {
+  MDefinition* input = getOperand(0);
+
+  if (input->isBox()) {
+    MDefinition* unboxed = input->getOperand(0);
+    if (IsNumericType(unboxed->type())) {
+      // If the argument is an MBox and we can see that it boxes a numeric
+      // value, ToNumeric can be elided.
+      return input;
+    }
+  }
+
+  return this;
 }
 
 MDefinition* MToNumberInt32::foldsTo(TempAllocator& alloc) {
@@ -4188,6 +4189,11 @@ bool MCompare::tryFoldTypeOf(bool* result) {
     }
   } else if (constant->toString() == TypeName(JSTYPE_SYMBOL, names)) {
     if (!typeOf->input()->mightBeType(MIRType::Symbol)) {
+      *result = (jsop() == JSOP_STRICTNE || jsop() == JSOP_NE);
+      return true;
+    }
+  } else if (constant->toString() == TypeName(JSTYPE_BIGINT, names)) {
+    if (!typeOf->input()->mightBeType(MIRType::BigInt)) {
       *result = (jsop() == JSOP_STRICTNE || jsop() == JSOP_NE);
       return true;
     }
@@ -5438,6 +5444,8 @@ bool MConstant::appendRoots(MRootList& roots) const {
       return roots.append(toString());
     case MIRType::Symbol:
       return roots.append(toSymbol());
+    case MIRType::BigInt:
+      return roots.append(toBigInt());
     case MIRType::Object:
       return roots.append(&toObject());
     case MIRType::Undefined:
@@ -5479,9 +5487,8 @@ MDefinition* MWasmUnsignedToFloat32::foldsTo(TempAllocator& alloc) {
 
 MWasmCall* MWasmCall::New(TempAllocator& alloc, const wasm::CallSiteDesc& desc,
                           const wasm::CalleeDesc& callee, const Args& args,
-                          MIRType resultType, uint32_t spIncrement,
-                          MDefinition* tableIndex) {
-  MWasmCall* call = new (alloc) MWasmCall(desc, callee, spIncrement);
+                          MIRType resultType, MDefinition* tableIndex) {
+  MWasmCall* call = new (alloc) MWasmCall(desc, callee);
   call->setResultType(resultType);
 
   if (!call->argRegs_.init(alloc, args.length())) {
@@ -5509,10 +5516,10 @@ MWasmCall* MWasmCall::New(TempAllocator& alloc, const wasm::CallSiteDesc& desc,
 MWasmCall* MWasmCall::NewBuiltinInstanceMethodCall(
     TempAllocator& alloc, const wasm::CallSiteDesc& desc,
     const wasm::SymbolicAddress builtin, const ABIArg& instanceArg,
-    const Args& args, MIRType resultType, uint32_t spIncrement) {
+    const Args& args, MIRType resultType) {
   auto callee = wasm::CalleeDesc::builtinInstanceMethod(builtin);
-  MWasmCall* call = MWasmCall::New(alloc, desc, callee, args, resultType,
-                                   spIncrement, nullptr);
+  MWasmCall* call =
+      MWasmCall::New(alloc, desc, callee, args, resultType, nullptr);
   if (!call) {
     return nullptr;
   }
@@ -6174,7 +6181,8 @@ static bool TryAddTypeBarrierForWrite(TempAllocator& alloc,
     case MIRType::Int32:
     case MIRType::Double:
     case MIRType::String:
-    case MIRType::Symbol: {
+    case MIRType::Symbol:
+    case MIRType::BigInt: {
       // The property is a particular primitive type, guard by unboxing the
       // value before the write.
       if (!(*pvalue)->mightBeType(propertyType)) {

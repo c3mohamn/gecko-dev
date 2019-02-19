@@ -385,237 +385,6 @@ void AssertHeapIsIdle();
 
 namespace JS {
 
-class JS_PUBLIC_API ContextOptions {
- public:
-  ContextOptions()
-      : baseline_(true),
-        ion_(true),
-        asmJS_(true),
-        wasm_(true),
-        wasmVerbose_(false),
-        wasmBaseline_(true),
-        wasmIon_(true),
-#ifdef ENABLE_WASM_CRANELIFT
-        wasmForceCranelift_(false),
-#endif
-#ifdef ENABLE_WASM_REFTYPES
-        wasmGc_(false),
-#endif
-        testWasmAwaitTier2_(false),
-        throwOnAsmJSValidationFailure_(false),
-        nativeRegExp_(true),
-        asyncStack_(true),
-        throwOnDebuggeeWouldRun_(true),
-        dumpStackOnDebuggeeWouldRun_(false),
-        werror_(false),
-        strictMode_(false),
-        extraWarnings_(false)
-#ifdef FUZZING
-        ,
-        fuzzing_(false)
-#endif
-  {
-  }
-
-  bool baseline() const { return baseline_; }
-  ContextOptions& setBaseline(bool flag) {
-    baseline_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleBaseline() {
-    baseline_ = !baseline_;
-    return *this;
-  }
-
-  bool ion() const { return ion_; }
-  ContextOptions& setIon(bool flag) {
-    ion_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleIon() {
-    ion_ = !ion_;
-    return *this;
-  }
-
-  bool asmJS() const { return asmJS_; }
-  ContextOptions& setAsmJS(bool flag) {
-    asmJS_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleAsmJS() {
-    asmJS_ = !asmJS_;
-    return *this;
-  }
-
-  bool wasm() const { return wasm_; }
-  ContextOptions& setWasm(bool flag) {
-    wasm_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleWasm() {
-    wasm_ = !wasm_;
-    return *this;
-  }
-
-  bool wasmVerbose() const { return wasmVerbose_; }
-  ContextOptions& setWasmVerbose(bool flag) {
-    wasmVerbose_ = flag;
-    return *this;
-  }
-
-  bool wasmBaseline() const { return wasmBaseline_; }
-  ContextOptions& setWasmBaseline(bool flag) {
-    wasmBaseline_ = flag;
-    return *this;
-  }
-
-  bool wasmIon() const { return wasmIon_; }
-  ContextOptions& setWasmIon(bool flag) {
-    wasmIon_ = flag;
-    return *this;
-  }
-
-#ifdef ENABLE_WASM_CRANELIFT
-  bool wasmForceCranelift() const { return wasmForceCranelift_; }
-  ContextOptions& setWasmForceCranelift(bool flag) {
-    wasmForceCranelift_ = flag;
-    return *this;
-  }
-#endif
-
-  bool testWasmAwaitTier2() const { return testWasmAwaitTier2_; }
-  ContextOptions& setTestWasmAwaitTier2(bool flag) {
-    testWasmAwaitTier2_ = flag;
-    return *this;
-  }
-
-#ifdef ENABLE_WASM_REFTYPES
-  bool wasmGc() const { return wasmGc_; }
-  ContextOptions& setWasmGc(bool flag) {
-    wasmGc_ = flag;
-    return *this;
-  }
-#endif
-
-  bool throwOnAsmJSValidationFailure() const {
-    return throwOnAsmJSValidationFailure_;
-  }
-  ContextOptions& setThrowOnAsmJSValidationFailure(bool flag) {
-    throwOnAsmJSValidationFailure_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleThrowOnAsmJSValidationFailure() {
-    throwOnAsmJSValidationFailure_ = !throwOnAsmJSValidationFailure_;
-    return *this;
-  }
-
-  bool nativeRegExp() const { return nativeRegExp_; }
-  ContextOptions& setNativeRegExp(bool flag) {
-    nativeRegExp_ = flag;
-    return *this;
-  }
-
-  bool asyncStack() const { return asyncStack_; }
-  ContextOptions& setAsyncStack(bool flag) {
-    asyncStack_ = flag;
-    return *this;
-  }
-
-  bool throwOnDebuggeeWouldRun() const { return throwOnDebuggeeWouldRun_; }
-  ContextOptions& setThrowOnDebuggeeWouldRun(bool flag) {
-    throwOnDebuggeeWouldRun_ = flag;
-    return *this;
-  }
-
-  bool dumpStackOnDebuggeeWouldRun() const {
-    return dumpStackOnDebuggeeWouldRun_;
-  }
-  ContextOptions& setDumpStackOnDebuggeeWouldRun(bool flag) {
-    dumpStackOnDebuggeeWouldRun_ = flag;
-    return *this;
-  }
-
-  bool werror() const { return werror_; }
-  ContextOptions& setWerror(bool flag) {
-    werror_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleWerror() {
-    werror_ = !werror_;
-    return *this;
-  }
-
-  bool strictMode() const { return strictMode_; }
-  ContextOptions& setStrictMode(bool flag) {
-    strictMode_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleStrictMode() {
-    strictMode_ = !strictMode_;
-    return *this;
-  }
-
-  bool extraWarnings() const { return extraWarnings_; }
-  ContextOptions& setExtraWarnings(bool flag) {
-    extraWarnings_ = flag;
-    return *this;
-  }
-  ContextOptions& toggleExtraWarnings() {
-    extraWarnings_ = !extraWarnings_;
-    return *this;
-  }
-
-#ifdef FUZZING
-  bool fuzzing() const { return fuzzing_; }
-  ContextOptions& setFuzzing(bool flag) {
-    fuzzing_ = flag;
-    return *this;
-  }
-#endif
-
-  void disableOptionsForSafeMode() {
-    setBaseline(false);
-    setIon(false);
-    setAsmJS(false);
-    setWasm(false);
-    setWasmBaseline(false);
-    setWasmIon(false);
-#ifdef ENABLE_WASM_REFTYPES
-    setWasmGc(false);
-#endif
-    setNativeRegExp(false);
-  }
-
- private:
-  bool baseline_ : 1;
-  bool ion_ : 1;
-  bool asmJS_ : 1;
-  bool wasm_ : 1;
-  bool wasmVerbose_ : 1;
-  bool wasmBaseline_ : 1;
-  bool wasmIon_ : 1;
-#ifdef ENABLE_WASM_CRANELIFT
-  bool wasmForceCranelift_ : 1;
-#endif
-#ifdef ENABLE_WASM_REFTYPES
-  bool wasmGc_ : 1;
-#endif
-  bool testWasmAwaitTier2_ : 1;
-  bool throwOnAsmJSValidationFailure_ : 1;
-  bool nativeRegExp_ : 1;
-  bool asyncStack_ : 1;
-  bool throwOnDebuggeeWouldRun_ : 1;
-  bool dumpStackOnDebuggeeWouldRun_ : 1;
-  bool werror_ : 1;
-  bool strictMode_ : 1;
-  bool extraWarnings_ : 1;
-#ifdef FUZZING
-  bool fuzzing_ : 1;
-#endif
-};
-
-JS_PUBLIC_API ContextOptions& ContextOptionsRef(JSContext* cx);
-
 /**
  * Initialize the runtime's self-hosted code. Embeddings should call this
  * exactly once per runtime/context, before the first JS_NewGlobalObject
@@ -801,16 +570,36 @@ extern JS_PUBLIC_API void IterateRealmsInCompartment(
 
 }  // namespace JS
 
-typedef void (*JSIterateCompartmentCallback)(JSContext* cx, void* data,
-                                             JS::Compartment* compartment);
+/**
+ * An enum that JSIterateCompartmentCallback can return to indicate
+ * whether to keep iterating.
+ */
+namespace JS {
+enum class CompartmentIterResult { KeepGoing, Stop };
+}  // namespace JS
+
+typedef JS::CompartmentIterResult (*JSIterateCompartmentCallback)(
+    JSContext* cx, void* data, JS::Compartment* compartment);
 
 /**
- * This function calls |compartmentCallback| on every compartment. Beware that
- * there is no guarantee that the compartment will survive after the callback
- * returns. Also, barriers are disabled via the TraceSession.
+ * This function calls |compartmentCallback| on every compartment until either
+ * all compartments have been iterated or CompartmentIterResult::Stop is
+ * returned. Beware that there is no guarantee that the compartment will survive
+ * after the callback returns. Also, barriers are disabled via the TraceSession.
  */
 extern JS_PUBLIC_API void JS_IterateCompartments(
     JSContext* cx, void* data,
+    JSIterateCompartmentCallback compartmentCallback);
+
+/**
+ * This function calls |compartmentCallback| on every compartment in the given
+ * zone until either all compartments have been iterated or
+ * CompartmentIterResult::Stop is returned. Beware that there is no guarantee
+ * that the compartment will survive after the callback returns. Also, barriers
+ * are disabled via the TraceSession.
+ */
+extern JS_PUBLIC_API void JS_IterateCompartmentsInZone(
+    JSContext* cx, JS::Zone* zone, void* data,
     JSIterateCompartmentCallback compartmentCallback);
 
 /**
@@ -1174,12 +963,9 @@ class JS_PUBLIC_API RealmCreationOptions {
         cloneSingletons_(false),
         sharedMemoryAndAtomics_(false),
         streams_(false),
-#ifdef ENABLE_BIGINT
         bigint_(false),
-#endif
         secureContext_(false),
-        clampAndJitterTime_(true) {
-  }
+        clampAndJitterTime_(true) {}
 
   JSTraceOp getTrace() const { return traceGlobal_; }
   RealmCreationOptions& setTrace(JSTraceOp op) {
@@ -1203,6 +989,7 @@ class JS_PUBLIC_API RealmCreationOptions {
   RealmCreationOptions& setNewCompartmentInExistingZone(JSObject* obj);
   RealmCreationOptions& setNewCompartmentAndZone();
   RealmCreationOptions& setExistingCompartment(JSObject* obj);
+  RealmCreationOptions& setExistingCompartment(JS::Compartment* compartment);
 
   // Certain compartments are implementation details of the embedding, and
   // references to them should never leak out to script. This flag causes this
@@ -1252,13 +1039,11 @@ class JS_PUBLIC_API RealmCreationOptions {
     return *this;
   }
 
-#ifdef ENABLE_BIGINT
   bool getBigIntEnabled() const { return bigint_; }
   RealmCreationOptions& setBigIntEnabled(bool flag) {
     bigint_ = flag;
     return *this;
   }
-#endif
 
   // This flag doesn't affect JS engine behavior.  It is used by Gecko to
   // mark whether content windows and workers are "Secure Context"s. See
@@ -1289,9 +1074,7 @@ class JS_PUBLIC_API RealmCreationOptions {
   bool cloneSingletons_;
   bool sharedMemoryAndAtomics_;
   bool streams_;
-#ifdef ENABLE_BIGINT
   bool bigint_;
-#endif
   bool secureContext_;
   bool clampAndJitterTime_;
 };
@@ -1987,6 +1770,15 @@ extern JS_PUBLIC_API bool JS_DeleteElement(JSContext* cx, JS::HandleObject obj,
 extern JS_PUBLIC_API bool JS_Enumerate(JSContext* cx, JS::HandleObject obj,
                                        JS::MutableHandle<JS::IdVector> props);
 
+/**
+ * Equivalent to `Object.assign(target, src)`: Copies the properties from the
+ * `src` object (which must not be null) to `target` (which also must not be
+ * null).
+ */
+extern JS_PUBLIC_API bool JS_AssignObject(JSContext* cx,
+                                          JS::HandleObject target,
+                                          JS::HandleObject src);
+
 /*
  * API for determining callability and constructability. [[Call]] and
  * [[Construct]] are internal methods that aren't present on all objects, so it
@@ -2575,24 +2367,18 @@ extern JS_PUBLIC_API JS::Value GetScriptPrivate(JSScript* script);
 extern JS_PUBLIC_API JS::Value GetScriptedCallerPrivate(JSContext* cx);
 
 /**
- * A hook that's called whenever a script or module which has a private value
- * set with SetScriptPrivate() or SetModulePrivate() is finalized. This can be
- * used to clean up the private state. The private value is passed as an
- * argument.
+ * Hooks called when references to a script private value are created or
+ * destroyed. This allows use of a reference counted object as the
+ * script private.
  */
-using ScriptPrivateFinalizeHook = void (*)(JSFreeOp*, const JS::Value&);
-
-/**
- * Get the script private finalize hook for the runtime.
- */
-extern JS_PUBLIC_API ScriptPrivateFinalizeHook
-GetScriptPrivateFinalizeHook(JSRuntime* rt);
+using ScriptPrivateReferenceHook = void (*)(const JS::Value&);
 
 /**
  * Set the script private finalize hook for the runtime to the given function.
  */
-extern JS_PUBLIC_API void SetScriptPrivateFinalizeHook(
-    JSRuntime* rt, ScriptPrivateFinalizeHook func);
+extern JS_PUBLIC_API void SetScriptPrivateReferenceHooks(
+    JSRuntime* rt, ScriptPrivateReferenceHook addRefHook,
+    ScriptPrivateReferenceHook releaseHook);
 
 /*
  * Perform the ModuleInstantiate operation on the given source text module
@@ -3587,7 +3373,7 @@ extern JS_PUBLIC_API JSObject* JS_NewObjectForConstructor(
 /************************************************************************/
 
 #ifdef JS_GC_ZEAL
-#define JS_DEFAULT_ZEAL_FREQ 100
+#  define JS_DEFAULT_ZEAL_FREQ 100
 
 extern JS_PUBLIC_API void JS_GetGCZealBits(JSContext* cx, uint32_t* zealBits,
                                            uint32_t* frequency,
@@ -3621,6 +3407,7 @@ extern JS_PUBLIC_API void JS_SetOffthreadIonCompilationEnabled(JSContext* cx,
   Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks") \
   Register(JUMP_THRESHOLD, "jump-threshold") \
   Register(TRACK_OPTIMIZATIONS, "jit.track-optimizations")\
+  Register(UNBOXED_OBJECTS, "unboxed_objects") \
   Register(SIMULATOR_ALWAYS_INTERRUPT, "simulator.always-interrupt") \
   Register(SPECTRE_INDEX_MASKING, "spectre.index-masking") \
   Register(SPECTRE_OBJECT_MITIGATIONS_BARRIERS, "spectre.object-mitigations.barriers") \
@@ -3768,63 +3555,6 @@ extern JS_PUBLIC_API StackFormat GetStackFormat(JSContext* cx);
 }  // namespace js
 
 namespace JS {
-
-/*
- * This callback represents a request by the JS engine to open for reading the
- * existing cache entry for the given global and char range that may contain a
- * module. If a cache entry exists, the callback shall return 'true' and return
- * the size, base address and an opaque file handle as outparams. If the
- * callback returns 'true', the JS engine guarantees a call to
- * CloseAsmJSCacheEntryForReadOp, passing the same base address, size and
- * handle.
- */
-using OpenAsmJSCacheEntryForReadOp =
-    bool (*)(HandleObject global, const char16_t* begin, const char16_t* limit,
-             size_t* size, const uint8_t** memory, intptr_t* handle);
-using CloseAsmJSCacheEntryForReadOp = void (*)(size_t size,
-                                               const uint8_t* memory,
-                                               intptr_t handle);
-
-/** The list of reasons why an asm.js module may not be stored in the cache. */
-enum AsmJSCacheResult {
-  AsmJSCache_Success,
-  AsmJSCache_MIN = AsmJSCache_Success,
-  AsmJSCache_ModuleTooSmall,
-  AsmJSCache_SynchronousScript,
-  AsmJSCache_QuotaExceeded,
-  AsmJSCache_StorageInitFailure,
-  AsmJSCache_Disabled_Internal,
-  AsmJSCache_Disabled_ShellFlags,
-  AsmJSCache_Disabled_JitInspector,
-  AsmJSCache_InternalError,
-  AsmJSCache_Disabled_PrivateBrowsing,
-  AsmJSCache_LIMIT
-};
-
-/*
- * This callback represents a request by the JS engine to open for writing a
- * cache entry of the given size for the given global and char range containing
- * the just-compiled module. If cache entry space is available, the callback
- * shall return 'true' and return the base address and an opaque file handle as
- * outparams. If the callback returns 'true', the JS engine guarantees a call
- * to CloseAsmJSCacheEntryForWriteOp passing the same base address, size and
- * handle.
- */
-using OpenAsmJSCacheEntryForWriteOp = AsmJSCacheResult (*)(
-    HandleObject global, const char16_t* begin, const char16_t* end,
-    size_t size, uint8_t** memory, intptr_t* handle);
-using CloseAsmJSCacheEntryForWriteOp = void (*)(size_t size, uint8_t* memory,
-                                                intptr_t handle);
-
-struct AsmJSCacheOps {
-  OpenAsmJSCacheEntryForReadOp openEntryForRead = nullptr;
-  CloseAsmJSCacheEntryForReadOp closeEntryForRead = nullptr;
-  OpenAsmJSCacheEntryForWriteOp openEntryForWrite = nullptr;
-  CloseAsmJSCacheEntryForWriteOp closeEntryForWrite = nullptr;
-};
-
-extern JS_PUBLIC_API void SetAsmJSCacheOps(JSContext* cx,
-                                           const AsmJSCacheOps* callbacks);
 
 /**
  * The WasmModule interface allows the embedding to hold a reference to the
@@ -4110,175 +3840,7 @@ extern JS_PUBLIC_API bool IsUnwrappedSavedFrame(JSObject* obj);
 
 } /* namespace JS */
 
-/* Stopwatch-based performance monitoring. */
-
 namespace js {
-
-class AutoStopwatch;
-
-/**
- * Abstract base class for a representation of the performance of a
- * component. Embeddings interested in performance monitoring should
- * provide a concrete implementation of this class, as well as the
- * relevant callbacks (see below).
- */
-struct JS_PUBLIC_API PerformanceGroup {
-  PerformanceGroup();
-
-  // The current iteration of the event loop.
-  uint64_t iteration() const;
-
-  // `true` if an instance of `AutoStopwatch` is already monitoring
-  // the performance of this performance group for this iteration
-  // of the event loop, `false` otherwise.
-  bool isAcquired(uint64_t it) const;
-
-  // `true` if a specific instance of `AutoStopwatch` is already monitoring
-  // the performance of this performance group for this iteration
-  // of the event loop, `false` otherwise.
-  bool isAcquired(uint64_t it, const AutoStopwatch* owner) const;
-
-  // Mark that an instance of `AutoStopwatch` is monitoring
-  // the performance of this group for a given iteration.
-  void acquire(uint64_t it, const AutoStopwatch* owner);
-
-  // Mark that no `AutoStopwatch` is monitoring the
-  // performance of this group for the iteration.
-  void release(uint64_t it, const AutoStopwatch* owner);
-
-  // The number of cycles spent in this group during this iteration
-  // of the event loop. Note that cycles are not a reliable measure,
-  // especially over short intervals. See Stopwatch.* for a more
-  // complete discussion on the imprecision of cycle measurement.
-  uint64_t recentCycles(uint64_t iteration) const;
-  void addRecentCycles(uint64_t iteration, uint64_t cycles);
-
-  // The number of times this group has been activated during this
-  // iteration of the event loop.
-  uint64_t recentTicks(uint64_t iteration) const;
-  void addRecentTicks(uint64_t iteration, uint64_t ticks);
-
-  // The number of microseconds spent doing CPOW during this
-  // iteration of the event loop.
-  uint64_t recentCPOW(uint64_t iteration) const;
-  void addRecentCPOW(uint64_t iteration, uint64_t CPOW);
-
-  // Get rid of any data that pretends to be recent.
-  void resetRecentData();
-
-  // `true` if new measures should be added to this group, `false`
-  // otherwise.
-  bool isActive() const;
-  void setIsActive(bool);
-
-  // `true` if this group has been used in the current iteration,
-  // `false` otherwise.
-  bool isUsedInThisIteration() const;
-  void setIsUsedInThisIteration(bool);
-
- protected:
-  // An implementation of `delete` for this object. Must be provided
-  // by the embedding.
-  virtual void Delete() = 0;
-
- private:
-  // The number of cycles spent in this group during this iteration
-  // of the event loop. Note that cycles are not a reliable measure,
-  // especially over short intervals. See Runtime.cpp for a more
-  // complete discussion on the imprecision of cycle measurement.
-  uint64_t recentCycles_;
-
-  // The number of times this group has been activated during this
-  // iteration of the event loop.
-  uint64_t recentTicks_;
-
-  // The number of microseconds spent doing CPOW during this
-  // iteration of the event loop.
-  uint64_t recentCPOW_;
-
-  // The current iteration of the event loop. If necessary,
-  // may safely overflow.
-  uint64_t iteration_;
-
-  // `true` if new measures should be added to this group, `false`
-  // otherwise.
-  bool isActive_;
-
-  // `true` if this group has been used in the current iteration,
-  // `false` otherwise.
-  bool isUsedInThisIteration_;
-
-  // The stopwatch currently monitoring the group,
-  // or `nullptr` if none. Used ony for comparison.
-  const AutoStopwatch* owner_;
-
- public:
-  // Compatibility with RefPtr<>
-  void AddRef();
-  void Release();
-  uint64_t refCount_;
-};
-
-using PerformanceGroupVector =
-    mozilla::Vector<RefPtr<js::PerformanceGroup>, 8, SystemAllocPolicy>;
-
-/**
- * Commit any Performance Monitoring data.
- *
- * Until `FlushMonitoring` has been called, all PerformanceMonitoring data is
- * invisible to the outside world and can cancelled with a call to
- * `ResetMonitoring`.
- */
-extern JS_PUBLIC_API bool FlushPerformanceMonitoring(JSContext*);
-
-/**
- * Cancel any measurement that hasn't been committed.
- */
-extern JS_PUBLIC_API void ResetPerformanceMonitoring(JSContext*);
-
-/**
- * Cleanup any memory used by performance monitoring.
- */
-extern JS_PUBLIC_API void DisposePerformanceMonitoring(JSContext*);
-
-/**
- * Turn on/off stopwatch-based CPU monitoring.
- *
- * `SetStopwatchIsMonitoringCPOW` or `SetStopwatchIsMonitoringJank`
- * may return `false` if monitoring could not be activated, which may
- * happen if we are out of memory.
- */
-extern JS_PUBLIC_API bool SetStopwatchIsMonitoringCPOW(JSContext*, bool);
-extern JS_PUBLIC_API bool GetStopwatchIsMonitoringCPOW(JSContext*);
-extern JS_PUBLIC_API bool SetStopwatchIsMonitoringJank(JSContext*, bool);
-extern JS_PUBLIC_API bool GetStopwatchIsMonitoringJank(JSContext*);
-
-// Extract the CPU rescheduling data.
-extern JS_PUBLIC_API void GetPerfMonitoringTestCpuRescheduling(JSContext*,
-                                                               uint64_t* stayed,
-                                                               uint64_t* moved);
-
-/**
- * Add a number of microseconds to the time spent waiting on CPOWs
- * since process start.
- */
-extern JS_PUBLIC_API void AddCPOWPerformanceDelta(JSContext*, uint64_t delta);
-
-typedef bool (*StopwatchStartCallback)(uint64_t, void*);
-extern JS_PUBLIC_API bool SetStopwatchStartCallback(JSContext*,
-                                                    StopwatchStartCallback,
-                                                    void*);
-
-typedef bool (*StopwatchCommitCallback)(uint64_t, PerformanceGroupVector&,
-                                        void*);
-extern JS_PUBLIC_API bool SetStopwatchCommitCallback(JSContext*,
-                                                     StopwatchCommitCallback,
-                                                     void*);
-
-typedef bool (*GetGroupsCallback)(JSContext*, PerformanceGroupVector&, void*);
-extern JS_PUBLIC_API bool SetGetPerformanceGroupsCallback(JSContext*,
-                                                          GetGroupsCallback,
-                                                          void*);
 
 /**
  * Hint that we expect a crash. Currently, the only thing that cares is the

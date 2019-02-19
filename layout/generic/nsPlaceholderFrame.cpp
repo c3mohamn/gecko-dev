@@ -29,7 +29,8 @@ using namespace mozilla::gfx;
 nsPlaceholderFrame* NS_NewPlaceholderFrame(nsIPresShell* aPresShell,
                                            ComputedStyle* aStyle,
                                            nsFrameState aTypeBits) {
-  return new (aPresShell) nsPlaceholderFrame(aStyle, aTypeBits);
+  return new (aPresShell)
+      nsPlaceholderFrame(aStyle, aPresShell->GetPresContext(), aTypeBits);
 }
 
 NS_IMPL_FRAMEARENA_HELPERS(nsPlaceholderFrame)
@@ -216,8 +217,9 @@ ComputedStyle* nsPlaceholderFrame::GetLayoutParentStyleForOutOfFlow(
   // Lie about our pseudo so we can step out of all anon boxes and
   // pseudo-elements.  The other option would be to reimplement the
   // {ib} split gunk here.
-  *aProviderFrame =
-      CorrectStyleParentFrame(GetParent(), nsGkAtoms::placeholderFrame);
+  //
+  // See the hack in CorrectStyleParentFrame for why we pass `MAX`.
+  *aProviderFrame = CorrectStyleParentFrame(GetParent(), PseudoStyleType::MAX);
   return *aProviderFrame ? (*aProviderFrame)->Style() : nullptr;
 }
 
@@ -245,13 +247,13 @@ void nsPlaceholderFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
                                           const nsDisplayListSet& aLists) {
   DO_GLOBAL_REFLOW_COUNT_DSP("nsPlaceholderFrame");
 
-#ifdef DEBUG
+#  ifdef DEBUG
   if (GetShowFrameBorders()) {
     aLists.Outlines()->AppendToTop(MakeDisplayItem<nsDisplayGeneric>(
         aBuilder, this, PaintDebugPlaceholder, "DebugPlaceholder",
         DisplayItemType::TYPE_DEBUG_PLACEHOLDER));
   }
-#endif
+#  endif
 }
 #endif  // DEBUG || (MOZ_REFLOW_PERF_DSP && MOZ_REFLOW_PERF)
 
@@ -267,7 +269,7 @@ void nsPlaceholderFrame::List(FILE* out, const char* aPrefix,
 
   if (mOutOfFlowFrame) {
     str += " outOfFlowFrame=";
-    nsFrame::ListTag(str, mOutOfFlowFrame);
+    str += mOutOfFlowFrame->ListTag();
   }
   fprintf_stderr(out, "%s\n", str.get());
 }

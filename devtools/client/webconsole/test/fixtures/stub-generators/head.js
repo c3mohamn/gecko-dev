@@ -306,7 +306,7 @@ async function generateConsoleApiStubs() {
   const hud = toolbox.getCurrentPanel().hud;
   const {ui} = hud;
   ok(ui.jsterm, "jsterm exists");
-  ok(ui.consoleOutput, "consoleOutput exists");
+  ok(ui.wrapper, "wrapper exists");
 
   for (const [key, {keys, code}] of consoleApi) {
     const received = new Promise(resolve => {
@@ -399,9 +399,8 @@ async function generateEvaluationResultStubs() {
   const toolbox = await openNewTabAndToolbox(TEST_URI, "webconsole");
 
   for (const [key, code] of evaluationResult) {
-    const packet = await new Promise(resolve => {
-      toolbox.target.activeConsole.evaluateJS(code, resolve);
-    });
+    const packet = await toolbox.target.activeConsole.evaluateJS(code);
+
     stubs.packets.push(formatPacket(key, packet));
     stubs.preparedMessages.push(formatStub(key, packet));
   }
@@ -436,7 +435,7 @@ async function generateNetworkEventStubs() {
 
     const onNetworkUpdate = new Promise(resolve => {
       let i = 0;
-      ui.jsterm.hud.on("network-message-updated", function onNetworkUpdated(res) {
+      ui.on("network-message-updated", function onNetworkUpdated(res) {
         const updateKey = `${keys[i++]} update`;
         // We cannot ensure the form of the network update packet, some properties
         // might be in another order than in the original packet.
@@ -454,7 +453,7 @@ async function generateNetworkEventStubs() {
         stubs.packets.push(formatPacket(updateKey, packet));
         stubs.preparedMessages.push(formatNetworkEventStub(updateKey, res));
         if (i === keys.length) {
-          ui.jsterm.hud.off("network-message-updated", onNetworkUpdated);
+          ui.off("network-message-updated", onNetworkUpdated);
           resolve();
         }
       });

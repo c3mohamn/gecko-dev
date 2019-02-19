@@ -4,7 +4,6 @@
 "use strict";
 
 const { Component } = require("devtools/client/shared/vendor/react");
-const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const dom = require("devtools/client/shared/vendor/react-dom-factories");
 const { connect } = require("devtools/client/shared/vendor/react-redux");
 const { getAllFilters } = require("devtools/client/webconsole/selectors/filters");
@@ -21,14 +20,14 @@ const {
 const FilterButton = require("devtools/client/webconsole/components/FilterButton");
 const FilterCheckbox = require("devtools/client/webconsole/components/FilterCheckbox");
 
+loader.lazyRequireGetter(this, "PropTypes", "devtools/client/shared/vendor/react-prop-types");
+
 class FilterBar extends Component {
   static get propTypes() {
     return {
       dispatch: PropTypes.func.isRequired,
       filter: PropTypes.object.isRequired,
-      serviceContainer: PropTypes.shape({
-        attachRefToHud: PropTypes.func.isRequired,
-      }).isRequired,
+      attachRefToWebConsoleUI: PropTypes.func.isRequired,
       filterBarVisible: PropTypes.bool.isRequired,
       persistLogs: PropTypes.bool.isRequired,
       hidePersistLogsCheckbox: PropTypes.bool.isRequired,
@@ -47,7 +46,6 @@ class FilterBar extends Component {
   constructor(props) {
     super(props);
     this.onClickMessagesClear = this.onClickMessagesClear.bind(this);
-    this.onClickFilterBarToggle = this.onClickFilterBarToggle.bind(this);
     this.onClickRemoveAllFilters = this.onClickRemoveAllFilters.bind(this);
     this.onClickRemoveTextFilter = this.onClickRemoveTextFilter.bind(this);
     this.onSearchInput = this.onSearchInput.bind(this);
@@ -57,7 +55,7 @@ class FilterBar extends Component {
   }
 
   componentDidMount() {
-    this.props.serviceContainer.attachRefToHud(
+    this.props.attachRefToWebConsoleUI(
       "filterBox",
       this.wrapperNode.querySelector(".text-filter")
     );
@@ -100,10 +98,6 @@ class FilterBar extends Component {
 
   onClickMessagesClear() {
     this.props.dispatch(actions.messagesClear());
-  }
-
-  onClickFilterBarToggle() {
-    this.props.dispatch(actions.filterBarToggle());
   }
 
   onClickRemoveAllFilters() {
@@ -238,7 +232,6 @@ class FilterBar extends Component {
   render() {
     const {
       filter,
-      filterBarVisible,
       persistLogs,
       filteredMessagesCount,
       hidePersistLogsCheckbox,
@@ -257,12 +250,6 @@ class FilterBar extends Component {
         }),
         dom.div({
           className: "devtools-separator",
-        }),
-        dom.button({
-          className: "devtools-button devtools-filter-icon" + (
-            filterBarVisible ? " checked" : ""),
-          title: l10n.getStr("webconsole.toggleFilterButton.tooltip"),
-          onClick: this.onClickFilterBarToggle,
         }),
         dom.input({
           className: "devtools-plaininput text-filter",
@@ -300,9 +287,7 @@ class FilterBar extends Component {
       ));
     }
 
-    if (filterBarVisible) {
-      children.push(this.renderFiltersConfigBar());
-    }
+    children.push(this.renderFiltersConfigBar());
 
     return (
       dom.div({

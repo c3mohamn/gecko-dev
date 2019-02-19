@@ -6,14 +6,16 @@
 
 var EXPORTED_SYMBOLS = ["WebNavigationChild"];
 
-ChromeUtils.import("resource://gre/modules/ActorChild.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {ActorChild} = ChromeUtils.import("resource://gre/modules/ActorChild.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 ChromeUtils.defineModuleGetter(this, "AppConstants",
                                "resource://gre/modules/AppConstants.jsm");
 ChromeUtils.defineModuleGetter(this, "Utils",
                                "resource://gre/modules/sessionstore/Utils.jsm");
+ChromeUtils.defineModuleGetter(this, "E10SUtils",
+                               "resource://gre/modules/E10SUtils.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "CrashReporter",
                                    "@mozilla.org/xre/app-info;1",
@@ -41,7 +43,7 @@ class WebNavigationChild extends ActorChild {
                       Services.telemetry.msSystemNow() - message.data.requestTime);
 
         this.loadURI(message.data.uri, message.data.flags,
-                     message.data.referrer, message.data.referrerPolicy,
+                     message.data.referrerInfo,
                      message.data.postData, message.data.headers,
                      message.data.baseURI, message.data.triggeringPrincipal);
         break;
@@ -83,7 +85,7 @@ class WebNavigationChild extends ActorChild {
     this._wrapURIChangeCall(() => this.webNavigation.gotoIndex(index));
   }
 
-  loadURI(uri, flags, referrer, referrerPolicy, postData, headers, baseURI, triggeringPrincipal) {
+  loadURI(uri, flags, referrerInfo, postData, headers, baseURI, triggeringPrincipal) {
     if (AppConstants.MOZ_CRASHREPORTER && CrashReporter.enabled) {
       let annotation = uri;
       try {
@@ -97,24 +99,24 @@ class WebNavigationChild extends ActorChild {
                       on about: URIs. */ }
       CrashReporter.annotateCrashReport("URL", annotation);
     }
-    if (referrer)
-      referrer = Services.io.newURI(referrer);
     if (postData)
       postData = Utils.makeInputStream(postData);
     if (headers)
       headers = Utils.makeInputStream(headers);
     if (baseURI)
       baseURI = Services.io.newURI(baseURI);
+    this._assert(triggeringPrincipal, "We need a triggering principal to continue loading", new Error().lineNumber);
     if (triggeringPrincipal)
       triggeringPrincipal = Utils.deserializePrincipal(triggeringPrincipal);
+    this._assert(triggeringPrincipal, "Unable to deserialize passed triggering principal", new Error().lineNumber);
     if (!triggeringPrincipal) {
       triggeringPrincipal = Services.scriptSecurityManager.getSystemPrincipal({});
     }
+
     let loadURIOptions = {
       triggeringPrincipal,
       loadFlags: flags,
-      referrerURI: referrer,
-      referrerPolicy,
+      referrerInfo: E10SUtils.deserializeReferrerInfo(referrerInfo),
       postData,
       headers,
       baseURI,
@@ -122,6 +124,14 @@ class WebNavigationChild extends ActorChild {
     this._wrapURIChangeCall(() => {
       return this.webNavigation.loadURI(uri, loadURIOptions);
     });
+  }
+
+  _assert(condition, msg, line = 0) {
+    let debug = Cc["@mozilla.org/xpcom/debug;1"].getService(Ci.nsIDebug2);
+    if (!condition && debug.isDebugBuild) {
+      debug.warning(`${msg} - ${new Error().stack}`, "WebNavigationChild.js", line);
+      debug.abort("WebNavigationChild.js", line);
+    }
   }
 
   setOriginAttributes(originAttributes) {

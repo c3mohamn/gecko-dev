@@ -3,6 +3,7 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 /* eslint no-unused-vars: [2, {"vars": "local"}] */
+/* import-globals-from ../../../shared/test/telemetry-test-helpers.js */
 
 "use strict";
 
@@ -32,7 +33,7 @@ const DOCS_GA_PARAMS = `?${new URLSearchParams({
   "utm_medium": "firefox-console-errors",
   "utm_campaign": "default",
 })}`;
-const STATUS_CODES_GA_PARAMS = `?${new URLSearchParams({
+const GA_PARAMS = `?${new URLSearchParams({
   "utm_source": "mozilla",
   "utm_medium": "devtools-webconsole",
   "utm_campaign": "default",
@@ -51,9 +52,7 @@ registerCleanupFunction(async function() {
   });
   const browserConsole = HUDService.getBrowserConsole();
   if (browserConsole) {
-    if (browserConsole.jsterm) {
-      browserConsole.jsterm.hud.clearOutput(true);
-    }
+    browserConsole.ui.clearOutput(true);
     await HUDService.toggleBrowserConsole();
   }
 });
@@ -75,7 +74,7 @@ async function openNewTabAndConsole(url, clearJstermHistory = true) {
 
   if (clearJstermHistory) {
     // Clearing history that might have been set in previous tests.
-    await hud.ui.consoleOutput.dispatchClearHistory();
+    await hud.ui.wrapper.dispatchClearHistory();
   }
 
   return hud;
@@ -89,7 +88,7 @@ async function openNewTabAndConsole(url, clearJstermHistory = true) {
  * @param object hud
  */
 function logAllStoreChanges(hud) {
-  const store = hud.ui.consoleOutput.getStore();
+  const store = hud.ui.wrapper.getStore();
   // Adding logging each time the store is modified in order to check
   // the store state in case of failure.
   store.subscribe(() => {
@@ -272,10 +271,10 @@ function findMessages(hud, text, selector = ".message") {
  * @return promise
  */
 async function openContextMenu(hud, element) {
-  const onConsoleMenuOpened = hud.ui.consoleOutput.once("menu-open");
+  const onConsoleMenuOpened = hud.ui.wrapper.once("menu-open");
   synthesizeContextMenuEvent(element);
   await onConsoleMenuOpened;
-  const doc = hud.ui.consoleOutput.owner.chromeWindow.document;
+  const doc = hud.ui.wrapper.owner.chromeWindow.document;
   return doc.getElementById("webconsole-menu");
 }
 
@@ -288,7 +287,7 @@ async function openContextMenu(hud, element) {
  * @return promise
  */
 function hideContextMenu(hud) {
-  const doc = hud.ui.consoleOutput.owner.chromeWindow.document;
+  const doc = hud.ui.wrapper.owner.chromeWindow.document;
   const popup = doc.getElementById("webconsole-menu");
   if (!popup) {
     return Promise.resolve();
@@ -363,6 +362,12 @@ async function checkClickOnNode(hud, toolbox, frameLinkNode) {
   await onSourceInDebuggerOpened;
 
   const dbg = toolbox.getPanel("jsdebugger");
+
+  // Wait for the source to finish loading, if it is pending.
+  await waitFor(() => {
+    return !!dbg._selectors.getSelectedSource(dbg._getState());
+  });
+
   is(
     dbg._selectors.getSelectedSource(dbg._getState()).url,
     url,
@@ -660,6 +665,29 @@ async function closeConsole(tab = gBrowser.selectedTab) {
  *            or null(if event not fired)
  */
 function simulateLinkClick(element, clickEventProps) {
+  return overrideOpenLink(() => {
+    if (clickEventProps) {
+      // Click on the link using the event properties.
+      element.dispatchEvent(clickEventProps);
+    } else {
+      // Click on the link.
+      element.click();
+    }
+  });
+}
+
+/**
+ * Override the browserWindow open*Link function, executes the passed function and either
+ * wait for:
+ * - the link to be "opened"
+ * - 1s before timing out
+ * Then it puts back the original open*Link functions in browserWindow.
+ *
+ * @returns {Promise<Object>}: A promise resolving with an object of the following shape:
+ * - link: The link that was "opened"
+ * - where: If the link was opened in the background (null) or not ("tab").
+ */
+function overrideOpenLink(fn) {
   const browserWindow = Services.wm.getMostRecentWindow(gDevTools.chromeWindowType);
 
   // Override LinkIn methods to prevent navigating.
@@ -673,13 +701,7 @@ function simulateLinkClick(element, clickEventProps) {
       resolve({link: link, where});
     };
     browserWindow.openWebLinkIn = browserWindow.openTrustedLinkIn = openLinkIn;
-    if (clickEventProps) {
-      // Click on the link using the event properties.
-      element.dispatchEvent(clickEventProps);
-    } else {
-      // Click on the link.
-      element.click();
-    }
+    fn();
   });
 
   // Declare a timeout Promise that we can use to make sure openTrustedLinkIn or
@@ -802,7 +824,8 @@ async function waitForBrowserConsole() {
  * @param {Object} hud
  */
 async function getFilterState(hud) {
-  const filterBar = await setFilterBarVisible(hud, true);
+  const {outputNode} = hud.ui;
+  const filterBar = outputNode.querySelector(".webconsole-filterbar-secondary");
   const buttons = filterBar.querySelectorAll("button");
   const result = { };
 
@@ -839,7 +862,8 @@ async function getFilterState(hud) {
  *          }
  */
 async function setFilterState(hud, settings) {
-  const filterBar = await setFilterBarVisible(hud, true);
+  const {outputNode} = hud.ui;
+  const filterBar = outputNode.querySelector(".webconsole-filterbar-secondary");
 
   for (const category in settings) {
     const setActive = settings[category];
@@ -865,46 +889,6 @@ async function setFilterState(hud, settings) {
 }
 
 /**
- * Set the visibility of the filter bar.
- *
- * @param {Object} hud
- * @param {Boolean} state
- *        Set filter bar visibility
- */
-async function setFilterBarVisible(hud, state) {
-  info(`Setting the filter bar visibility to ${state}`);
-
-  const outputNode = hud.ui.outputNode;
-  const toolbar = await waitFor(() => {
-    return outputNode.querySelector(".webconsole-filterbar-primary");
-  });
-  let filterBar = outputNode.querySelector(".webconsole-filterbar-secondary");
-
-  // Show filter bar if state is true
-  if (state) {
-    if (!filterBar) {
-      // Click the filter icon to show the filter bar.
-      toolbar.querySelector(".devtools-filter-icon").click();
-      filterBar = await waitFor(() => {
-        return outputNode.querySelector(".webconsole-filterbar-secondary");
-      });
-    }
-    return filterBar;
-  }
-
-  // Hide filter bar if it is visible.
-  if (filterBar) {
-    // Click the filter icon to hide the filter bar.
-    toolbar.querySelector(".devtools-filter-icon").click();
-    await waitFor(() => {
-      return !outputNode.querySelector(".webconsole-filterbar-secondary");
-    });
-  }
-
-  return null;
-}
-
-/**
  * Reset the filters at the end of a test that has changed them. This is
  * important when using the `--verify` test option as when it is used you need
  * to manually reset the filters.
@@ -916,7 +900,7 @@ async function setFilterBarVisible(hud, state) {
 async function resetFilters(hud) {
   info("Resetting filters to their default state");
 
-  const store = hud.ui.consoleOutput.getStore();
+  const store = hud.ui.wrapper.getStore();
   store.dispatch(wcActions.filtersClear());
 }
 

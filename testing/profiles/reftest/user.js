@@ -4,8 +4,6 @@
 user_pref("app.normandy.api_url", "https://localhost/selfsupport-dummy/");
 user_pref("app.update.staging.enabled", false);
 user_pref("app.update.url.android", "");
-// Disable the thumbnailing service
-user_pref("browser.pagethumbnails.capturing_disabled", true);
 user_pref("browser.ping-centre.production.endpoint", "https://localhost");
 // Make sure Ping Centre doesn't hit the network.
 user_pref("browser.ping-centre.staging.endpoint", "https://localhost");
@@ -101,6 +99,7 @@ user_pref("toolkit.telemetry.server", "https://%(server)s/telemetry-dummy/");
 user_pref("ui.caretBlinkTime", -1);
 user_pref("ui.caretWidth", 1);
 user_pref("ui.prefersReducedMotion", 0);
+user_pref("ui.systemUsesDarkTheme", 0);
 // Turn off the Push service.
 user_pref("dom.push.serverURL", "");
 // Disable intermittent telemetry collection

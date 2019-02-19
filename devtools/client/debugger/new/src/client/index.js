@@ -17,6 +17,8 @@ import {
 } from "../utils/bootstrap";
 import { initialBreakpointsState } from "../reducers/breakpoints";
 
+import type { Panel } from "./firefox/types";
+
 function loadFromPrefs(actions: Object) {
   const { pauseOnExceptions, pauseOnCaughtExceptions } = prefs;
   if (pauseOnExceptions || pauseOnCaughtExceptions) {
@@ -25,6 +27,16 @@ function loadFromPrefs(actions: Object) {
       pauseOnCaughtExceptions
     );
   }
+}
+
+async function syncBreakpoints() {
+  const breakpoints = await asyncStore.pendingBreakpoints;
+  const breakpointValues = (Object.values(breakpoints): any);
+  breakpointValues.forEach(({ disabled, options, generatedLocation }) => {
+    if (!disabled) {
+      firefox.clientCommands.setBreakpoint(generatedLocation, options);
+    }
+  });
 }
 
 function syncXHRBreakpoints() {
@@ -41,10 +53,11 @@ async function loadInitialState() {
   const pendingBreakpoints = await asyncStore.pendingBreakpoints;
   const tabs = await asyncStore.tabs;
   const xhrBreakpoints = await asyncStore.xhrBreakpoints;
+  const eventListenerBreakpoints = await asyncStore.eventListenerBreakpoints;
 
   const breakpoints = initialBreakpointsState(xhrBreakpoints);
 
-  return { pendingBreakpoints, tabs, breakpoints };
+  return { pendingBreakpoints, tabs, breakpoints, eventListenerBreakpoints };
 }
 
 function getClient(connection: any) {
@@ -56,7 +69,8 @@ function getClient(connection: any) {
 
 export async function onConnect(
   connection: Object,
-  { services, toolboxActions }: Object
+  sourceMaps: Object,
+  panel: Panel
 ) {
   // NOTE: the landing page does not connect to a JS process
   if (!connection) {
@@ -70,10 +84,8 @@ export async function onConnect(
 
   const { store, actions, selectors } = bootstrapStore(
     commands,
-    {
-      services,
-      toolboxActions
-    },
+    sourceMaps,
+    panel,
     initialState
   );
 
@@ -81,12 +93,13 @@ export async function onConnect(
   await client.onConnect(connection, actions);
 
   await loadFromPrefs(actions);
+  syncBreakpoints();
   syncXHRBreakpoints();
   setupHelper({
     store,
     actions,
     selectors,
-    workers: { ...workers, ...services },
+    workers: { ...workers, sourceMaps },
     connection,
     client: client.clientCommands
   });

@@ -405,77 +405,14 @@ nsresult XULDocument::OnPrototypeLoadDone(bool aResumeWalk) {
   return rv;
 }
 
-void XULDocument::ContentAppended(nsIContent* aFirstNewContent) {
-  NS_ASSERTION(aFirstNewContent->OwnerDoc() == this, "unexpected doc");
-
-  // Might not need this, but be safe for now.
-  nsCOMPtr<nsIMutationObserver> kungFuDeathGrip(this);
-
-  // Update our element map
-  for (nsIContent* cur = aFirstNewContent; cur; cur = cur->GetNextSibling()) {
-    AddSubtreeToDocument(cur);
-  }
-}
-
-void XULDocument::ContentInserted(nsIContent* aChild) {
-  NS_ASSERTION(aChild->OwnerDoc() == this, "unexpected doc");
-
-  // Might not need this, but be safe for now.
-  nsCOMPtr<nsIMutationObserver> kungFuDeathGrip(this);
-
-  AddSubtreeToDocument(aChild);
-}
-
-void XULDocument::ContentRemoved(nsIContent* aChild,
-                                 nsIContent* aPreviousSibling) {
-  // FIXME(emilio): Doesn't this need to remove the l10n links if they go
-  // away, or something?
-}
-
 //----------------------------------------------------------------------
 //
 // Document interface
 //
 
-void XULDocument::AddElementToDocumentPost(Element* aElement) {
-  if (aElement == GetRootElement()) {
-    ResetDocumentDirection();
-  }
-
-  if (aElement->IsXULElement(nsGkAtoms::link)) {
-    LocalizationLinkAdded(aElement);
-  } else if (aElement->IsXULElement(nsGkAtoms::linkset)) {
-    OnL10nResourceContainerParsed();
-  }
-}
-
-void XULDocument::AddSubtreeToDocument(nsIContent* aContent) {
-  MOZ_ASSERT(aContent->GetComposedDoc() == this, "Element not in doc!");
-
-  // If the content is not in the document, it must be in a shadow tree.
-  //
-  // The shadow root itself takes care of maintaining the ID tables and such,
-  // and there's no use case for localization links in shadow trees, or at
-  // least they don't work in regular HTML documents either as of today so...
-  if (MOZ_UNLIKELY(!aContent->IsInUncomposedDoc())) {
-    MOZ_ASSERT(aContent->IsInShadowTree());
-    return;
-  }
-
-  // From here on we only care about elements.
-  Element* aElement = Element::FromNode(aContent);
-  if (!aElement) {
-    return;
-  }
-
-  // Recurse to children
-  for (nsIContent* child = aElement->GetLastChild(); child;
-       child = child->GetPreviousSibling()) {
-    AddSubtreeToDocument(child);
-  }
-
-  // Do post-order addition magic
-  AddElementToDocumentPost(aElement);
+void XULDocument::InitialDocumentTranslationCompleted() {
+  mPendingInitialTranslation = false;
+  MaybeDoneWalking();
 }
 
 //----------------------------------------------------------------------
@@ -702,6 +639,8 @@ nsresult XULDocument::PrepareToWalk() {
   rv = AppendChildTo(root, false);
   if (NS_FAILED(rv)) return rv;
 
+  ResetDocumentDirection();
+
   // Block onload until we've finished building the complete
   // document content model.
   BlockOnload();
@@ -790,6 +729,12 @@ nsresult XULDocument::InsertXMLStylesheetPI(const nsXULPrototypePI* aProtoPI,
   return NS_OK;
 }
 
+void XULDocument::CloseElement(Element* aElement) {
+  if (aElement->IsXULElement(nsGkAtoms::linkset)) {
+    aElement->DoneAddingChildren(false);
+  }
+}
+
 nsresult XULDocument::ResumeWalk() {
   // Walk the prototype and build the delegate content model. The
   // walk is performed in a top-down, left-to-right fashion. That
@@ -821,11 +766,8 @@ nsresult XULDocument::ResumeWalk() {
 
       if (indx >= (int32_t)proto->mChildren.Length()) {
         if (element) {
-          // We've processed all of the prototype's children. If
-          // we're in the master prototype, do post-order
-          // document-level hookup.
-          AddElementToDocumentPost(element->AsElement());
-
+          // We've processed all of the prototype's children.
+          CloseElement(element->AsElement());
           if (element->NodeInfo()->Equals(nsGkAtoms::style,
                                           kNameSpaceID_XHTML) ||
               element->NodeInfo()->Equals(nsGkAtoms::style, kNameSpaceID_SVG)) {
@@ -874,9 +816,8 @@ nsresult XULDocument::ResumeWalk() {
             rv = mContextStack.Push(protoele, child);
             if (NS_FAILED(rv)) return rv;
           } else {
-            // If there are no children, do post-order document hookup
-            // immediately.
-            AddElementToDocumentPost(child);
+            // If there are no children, close the element immediately.
+            CloseElement(child);
           }
         } break;
 
@@ -958,15 +899,26 @@ nsresult XULDocument::ResumeWalk() {
   mXULPersist->Init();
 
   mStillWalking = false;
-  if (mPendingSheets == 0) {
-    rv = DoneWalking();
+  return MaybeDoneWalking();
+}
+
+nsresult XULDocument::MaybeDoneWalking() {
+  if (mPendingSheets > 0 || mStillWalking) {
+    return NS_OK;
   }
-  return rv;
+
+  if (mPendingInitialTranslation) {
+    TriggerInitialDocumentTranslation();
+    return NS_OK;
+  }
+
+  return DoneWalking();
 }
 
 nsresult XULDocument::DoneWalking() {
   MOZ_ASSERT(mPendingSheets == 0, "there are sheets to be loaded");
   MOZ_ASSERT(!mStillWalking, "walk not done");
+  MOZ_ASSERT(!mPendingInitialTranslation, "translation pending");
 
   // XXXldb This is where we should really be setting the chromehidden
   // attribute.
@@ -983,18 +935,9 @@ nsresult XULDocument::DoneWalking() {
 
     NotifyPossibleTitleChange(false);
 
-    // For performance reasons, we want to trigger the DocumentL10n's
-    // `TriggerInitialDocumentTranslation` within the same microtask that will
-    // be created for a `MozBeforeInitialXULLayout` event listener.
-    AddEventListener(NS_LITERAL_STRING("MozBeforeInitialXULLayout"),
-                     mDocumentL10n, true, false);
-
     nsContentUtils::DispatchTrustedEvent(
         this, ToSupports(this), NS_LITERAL_STRING("MozBeforeInitialXULLayout"),
         CanBubble::eYes, Cancelable::eNo);
-
-    RemoveEventListener(NS_LITERAL_STRING("MozBeforeInitialXULLayout"),
-                        mDocumentL10n, true);
 
     // Before starting layout, check whether we're a toplevel chrome
     // window.  If we are, setup some state so that we don't have to restyle
@@ -1039,9 +982,7 @@ XULDocument::StyleSheetLoaded(StyleSheet* aSheet, bool aWasDeferred,
 
     --mPendingSheets;
 
-    if (!mStillWalking && mPendingSheets == 0) {
-      return DoneWalking();
-    }
+    return MaybeDoneWalking();
   }
 
   return NS_OK;

@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
+// @flow
+
 import React from "react";
 import { shallow } from "enzyme";
 import { showMenu } from "devtools-contextmenu";
@@ -17,7 +19,7 @@ jest.mock("../../../utils/clipboard", () => ({
 
 describe("SourcesTree", () => {
   afterEach(() => {
-    copyToTheClipboard.mockClear();
+    (copyToTheClipboard: any).mockClear();
     showMenu.mockClear();
   });
 
@@ -194,32 +196,7 @@ describe("SourcesTree", () => {
       await component
         .find(".sources-list")
         .simulate("keydown", { keyCode: 13 });
-      // expect(props.selectSource).toHaveBeenCalledWith(item.contents.id);
-    });
-  });
-
-  describe("with custom root", () => {
-    it("renders custom root source list", async () => {
-      const { component } = render({
-        projectRoot: "mdn.com"
-      });
-      expect(component).toMatchSnapshot();
-    });
-
-    it("calls clearProjectDirectoryRoot on click", async () => {
-      const { component, props } = render({
-        projectRoot: "mdn"
-      });
-      component.find(".sources-clear-root").simulate("click");
-      expect(props.clearProjectDirectoryRoot).toHaveBeenCalled();
-    });
-
-    it("renders empty custom root source list", async () => {
-      const { component } = render({
-        projectRoot: "custom",
-        sources: {}
-      });
-      expect(component).toMatchSnapshot();
+      expect(props.selectSource).toHaveBeenCalledWith(item.contents.id);
     });
   });
 
@@ -363,7 +340,7 @@ describe("SourcesTree", () => {
   });
 });
 
-function generateDefaults(overrides) {
+function generateDefaults(overrides: Object) {
   const defaultSources = {
     "server1.conn13.child1/39": createMockSource(
       "server1.conn13.child1/39",
@@ -393,7 +370,7 @@ function generateDefaults(overrides) {
     autoExpandAll: true,
     selectSource: jest.fn(),
     setExpandedState: jest.fn(),
-    sources: { FakeThread: defaultSources },
+    sources: defaultSources,
     debuggeeUrl: "http://mdn.com",
     clearProjectDirectoryRoot: jest.fn(),
     setProjectDirectoryRoot: jest.fn(),
@@ -405,6 +382,7 @@ function generateDefaults(overrides) {
 
 function render(overrides = {}) {
   const props = generateDefaults(overrides);
+  // $FlowIgnore
   const component = shallow(<SourcesTree.WrappedComponent {...props} />);
   const defaultState = component.state();
   const instance = component.instance();

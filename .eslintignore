@@ -30,8 +30,6 @@ netwerk/test/unit*/**
 tools/update-packaging/**
 uriloader/exthandler/**
 uriloader/exthandler/tests/mochitest/**
-widget/headless/tests/**
-widget/tests/**
 xpfe/**
 
 # We currently have no js files in these directories, so we ignore them by
@@ -65,6 +63,8 @@ browser/components/sessionstore/test/unit/data/sessionstore_invalid.js
 # for documentation purposes (policies.json) but to be accessed by the
 # code as a .jsm (schema.jsm)
 browser/components/enterprisepolicies/schemas/schema.jsm
+# Ignore generated code from wasm-bindgen
+browser/components/extensions/profiler_get_symbols.js
 # generated & special files in cld2
 browser/components/translation/cld2/**
 # Screenshots is imported as a system add-on and has
@@ -106,6 +106,7 @@ devtools/client/shared/webpack/shims/test/test_clipboard.html
 devtools/shared/qrcode/tests/mochitest/test_decode.html
 devtools/shared/tests/mochitest/*.html
 devtools/shared/webconsole/test/test_*.html
+devtools/client/webreplay/mochitest/examples/*.html
 
 # Soon to be removed, the new/ directory is explicitly excluded below due to
 # also being an imported repository.
@@ -140,11 +141,11 @@ devtools/client/jsonview/lib/require.js
 devtools/client/shared/demangle.js
 devtools/client/shared/source-map/*
 devtools/client/shared/vendor/*
-devtools/client/sourceeditor/codemirror/*.js
-devtools/client/sourceeditor/codemirror/**/*.js
-devtools/client/sourceeditor/tern/*
-devtools/client/sourceeditor/test/cm_mode_ruby.js
-devtools/client/sourceeditor/test/codemirror/*
+devtools/client/shared/sourceeditor/codemirror/*.js
+devtools/client/shared/sourceeditor/codemirror/**/*.js
+devtools/client/shared/sourceeditor/tern/*
+devtools/client/shared/sourceeditor/test/cm_mode_ruby.js
+devtools/client/shared/sourceeditor/test/codemirror/*
 devtools/server/actors/utils/automation-timeline.js
 
 # Ignore devtools files testing sourcemaps / code style
@@ -188,9 +189,6 @@ dom/media/webspeech/**
 dom/messagechannel/**
 dom/midi/**
 dom/network/**
-dom/notification/Notification*.*
-dom/notification/test/browser/**
-dom/notification/test/mochitest/**
 dom/payments/**
 dom/performance/**
 dom/permission/**
@@ -207,11 +205,9 @@ dom/security/test/sri/**
 dom/serviceworkers/**
 dom/smil/**
 dom/svg/**
-dom/system/**
-dom/tests/browser/**
+
 dom/tests/html/**
 dom/tests/mochitest/**
-dom/tests/unit/**
 dom/u2f/**
 dom/url/**
 dom/vr/**

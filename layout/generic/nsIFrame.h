@@ -14,30 +14,31 @@
 #endif
 
 #if (defined(XP_WIN) && !defined(HAVE_64BIT_BUILD)) || defined(ANDROID)
-// Blink's magic depth limit from its HTML parser (513) plus as much as fits in the
-// default run-time stack on armv7 Android on Dalvik when using display: block minus
-// a bit just to be sure. The Dalvik default stack crashes at 588. ART can do a few
-// frames more. Using the same number for 32-bit Windows for consistency. Over there,
-// Blink's magic depth of 513 doesn't fit in the default stack of 1 MB, but this magic
-// depth fits when the default is grown by mere 192 KB (tested in 64 KB increments).
+// Blink's magic depth limit from its HTML parser (513) plus as much as fits in
+// the default run-time stack on armv7 Android on Dalvik when using display:
+// block minus a bit just to be sure. The Dalvik default stack crashes at 588.
+// ART can do a few frames more. Using the same number for 32-bit Windows for
+// consistency. Over there, Blink's magic depth of 513 doesn't fit in the
+// default stack of 1 MB, but this magic depth fits when the default is grown by
+// mere 192 KB (tested in 64 KB increments).
 //
 // 32-bit Windows has a different limit compared to 64-bit desktop, because the
-// default stack size affects all threads and consumes address space. Fixing that
-// is bug 1257522.
+// default stack size affects all threads and consumes address space. Fixing
+// that is bug 1257522.
 //
-// 32-bit Android on ARM already happens to have defaults that are close enough to
-// what makes sense as a temporary measure on Windows, so adjusting the Android
-// stack can be a follow-up. The stack on 64-bit ARM needs adjusting in any case
-// before 64-bit ARM can become tier-1. See bug 1400811.
+// 32-bit Android on ARM already happens to have defaults that are close enough
+// to what makes sense as a temporary measure on Windows, so adjusting the
+// Android stack can be a follow-up. The stack on 64-bit ARM needs adjusting in
+// any case before 64-bit ARM can become tier-1. See bug 1400811.
 //
-// Ideally, we'd get rid of this smaller limit and make 32-bit Windows and Android
-// capable of working with the Linux/Mac/Win64 number below.
-#define MAX_REFLOW_DEPTH 585
+// Ideally, we'd get rid of this smaller limit and make 32-bit Windows and
+// Android capable of working with the Linux/Mac/Win64 number below.
+#  define MAX_REFLOW_DEPTH 585
 #else
-// Blink's magic depth limit from its HTML parser times two. Also just about fits
-// within the system default runtime stack limit of 8 MB on 64-bit Mac and Linux with
-// display: table-cell.
-#define MAX_REFLOW_DEPTH 1026
+// Blink's magic depth limit from its HTML parser times two. Also just about
+// fits within the system default runtime stack limit of 8 MB on 64-bit Mac and
+// Linux with display: table-cell.
+#  define MAX_REFLOW_DEPTH 1026
 #endif
 
 /* nsIFrame is in the process of being deCOMtaminated, i.e., this file is
@@ -73,7 +74,7 @@
 #include "nsDisplayItemTypes.h"
 
 #ifdef ACCESSIBILITY
-#include "mozilla/a11y/AccTypes.h"
+#  include "mozilla/a11y/AccTypes.h"
 #endif
 
 /**
@@ -127,7 +128,7 @@ struct CharacterDataChangeInfo;
 
 namespace mozilla {
 
-enum class CSSPseudoElementType : uint8_t;
+enum class PseudoStyleType : uint8_t;
 class EventStates;
 struct ReflowInput;
 class ReflowOutput;
@@ -550,6 +551,10 @@ class nsIFrame : public nsQueryFrame {
   using ReflowInput = mozilla::ReflowInput;
   using ReflowOutput = mozilla::ReflowOutput;
   using Visibility = mozilla::Visibility;
+  using StyleFlexBasis = mozilla::StyleFlexBasis;
+  using StyleSize = mozilla::StyleSize;
+  using LengthPercentage = mozilla::LengthPercentage;
+  using StyleExtremumLength = mozilla::StyleExtremumLength;
 
   typedef mozilla::ComputedStyle ComputedStyle;
   typedef mozilla::FrameProperties FrameProperties;
@@ -572,14 +577,17 @@ class nsIFrame : public nsQueryFrame {
 
   NS_DECL_QUERYFRAME_TARGET(nsIFrame)
 
-  explicit nsIFrame(ClassID aID)
+  explicit nsIFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
+                    ClassID aID)
       : mRect(),
         mContent(nullptr),
-        mComputedStyle(nullptr),
+        mComputedStyle(aStyle),
+        mPresContext(aPresContext),
         mParent(nullptr),
         mNextSibling(nullptr),
         mPrevSibling(nullptr),
         mState(NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY),
+        mWritingMode(aStyle),
         mClass(aID),
         mMayHaveRoundedCorners(false),
         mHasImageRequest(false),
@@ -597,10 +605,12 @@ class nsIFrame : public nsQueryFrame {
         mMayHaveOpacityAnimation(false),
         mAllDescendantsAreInvisible(false),
         mInScrollAnchorChain(false) {
+    MOZ_ASSERT(mComputedStyle);
+    MOZ_ASSERT(mPresContext);
     mozilla::PodZero(&mOverflow);
   }
 
-  nsPresContext* PresContext() const { return Style()->PresContextForFrame(); }
+  nsPresContext* PresContext() const { return mPresContext; }
 
   nsIPresShell* PresShell() const { return PresContext()->PresShell(); }
 
@@ -776,8 +786,6 @@ class nsIFrame : public nsQueryFrame {
    */
   void SetComputedStyleWithoutNotification(ComputedStyle* aStyle) {
     if (aStyle != mComputedStyle) {
-      MOZ_DIAGNOSTIC_ASSERT(PresShell() ==
-                            aStyle->PresContextForFrame()->PresShell());
       mComputedStyle = aStyle;
     }
   }
@@ -1985,7 +1993,7 @@ class nsIFrame : public nsQueryFrame {
    */
   struct MOZ_STACK_CLASS Cursor {
     nsCOMPtr<imgIContainer> mContainer;
-    int32_t mCursor = NS_STYLE_CURSOR_AUTO;
+    mozilla::StyleCursorKind mCursor = mozilla::StyleCursorKind::Auto;
     bool mHaveHotspot = false;
     bool mLoading = false;
     float mHotspotX = 0.0f, mHotspotY = 0.0f;
@@ -2875,6 +2883,12 @@ class nsIFrame : public nsQueryFrame {
    * Returns true if the frame is a block wrapper.
    */
   bool IsBlockWrapper() const;
+
+  /**
+   * Returns true if the frame is an instance of nsBlockFrame or one of its
+   * subclasses.
+   */
+  bool IsBlockFrameOrSubclass() const;
 
   /**
    * Get this frame's CSS containing block.
@@ -4080,14 +4094,39 @@ class nsIFrame : public nsQueryFrame {
   }
 
   /**
-   * Helper function - computes the content-box inline size for aCoord.
+   * Helper function - computes the content-box inline size for aSize.
    */
   nscoord ComputeISizeValue(gfxContext* aRenderingContext,
                             nscoord aContainingBlockISize,
                             nscoord aContentEdgeToBoxSizing,
                             nscoord aBoxSizingToMarginEdge,
-                            const nsStyleCoord& aCoord,
-                            ComputeSizeFlags aFlags = eDefault);
+                            StyleExtremumLength aSize, ComputeSizeFlags aFlags);
+
+  nscoord ComputeISizeValue(gfxContext* aRenderingContext,
+                            nscoord aContainingBlockISize,
+                            nscoord aContentEdgeToBoxSizing,
+                            nscoord aBoxSizingToMarginEdge,
+                            const LengthPercentage& aSize,
+                            ComputeSizeFlags aFlags);
+
+  template <typename SizeOrMaxSize>
+  nscoord ComputeISizeValue(gfxContext* aRenderingContext,
+                            nscoord aContainingBlockISize,
+                            nscoord aContentEdgeToBoxSizing,
+                            nscoord aBoxSizingToMarginEdge,
+                            const SizeOrMaxSize& aSize,
+                            ComputeSizeFlags aFlags = eDefault) {
+    MOZ_ASSERT(aSize.IsExtremumLength() || aSize.IsLengthPercentage(),
+               "This doesn't handle auto / none");
+    if (aSize.IsLengthPercentage()) {
+      return ComputeISizeValue(aRenderingContext, aContainingBlockISize,
+                               aContentEdgeToBoxSizing, aBoxSizingToMarginEdge,
+                               aSize.AsLengthPercentage(), aFlags);
+    }
+    return ComputeISizeValue(aRenderingContext, aContainingBlockISize,
+                             aContentEdgeToBoxSizing, aBoxSizingToMarginEdge,
+                             aSize.AsExtremumLength(), aFlags);
+  }
 
   DisplayItemDataArray& DisplayItemData() { return mDisplayItemData; }
   const DisplayItemDataArray& DisplayItemData() const {
@@ -4161,6 +4200,7 @@ class nsIFrame : public nsQueryFrame {
   RefPtr<ComputedStyle> mComputedStyle;
 
  private:
+  nsPresContext* const mPresContext;
   nsContainerFrame* mParent;
   nsIFrame* mNextSibling;  // doubly-linked list of frames
   nsIFrame* mPrevSibling;  // Do not touch outside SetNextSibling!
@@ -4527,24 +4567,8 @@ class nsIFrame : public nsQueryFrame {
   static void IndentBy(FILE* out, int32_t aIndent) {
     while (--aIndent >= 0) fputs("  ", out);
   }
-  void ListTag(FILE* out) const { ListTag(out, this); }
-  static void ListTag(FILE* out, const nsIFrame* aFrame) {
-    nsAutoCString t;
-    ListTag(t, aFrame);
-    fputs(t.get(), out);
-  }
-  static void ListTag(FILE* out, const nsFrameList& aFrameList) {
-    for (nsIFrame* frame : aFrameList) {
-      ListTag(out, frame);
-    }
-  }
-  void ListTag(nsACString& aTo) const;
-  nsAutoCString ListTag() const {
-    nsAutoCString tag;
-    ListTag(tag);
-    return tag;
-  }
-  static void ListTag(nsACString& aTo, const nsIFrame* aFrame);
+  void ListTag(FILE* out) const { fputs(ListTag().get(), out); }
+  nsAutoCString ListTag() const;
   void ListGeneric(nsACString& aTo, const char* aPrefix = "",
                    uint32_t aFlags = 0) const;
   enum {TRAVERSE_SUBDOCUMENT_FRAMES = 0x01};

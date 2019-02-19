@@ -19,7 +19,7 @@
 #include "nsISimpleEnumerator.h"
 #include "nsAccUtils.h"
 #ifdef MOZ_ACCESSIBILITY_ATK
-#include "AccessibleWrap.h"
+#  include "AccessibleWrap.h"
 #endif
 
 namespace mozilla {
@@ -258,6 +258,17 @@ mozilla::ipc::IPCResult DocAccessibleChild::RecvScrollToPoint(
   Accessible* acc = IdToAccessible(aID);
   if (acc) {
     acc->ScrollToPoint(aScrollType, aX, aY);
+  }
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult DocAccessibleChild::RecvAnnounce(
+    const uint64_t& aID, const nsString& aAnnouncement,
+    const uint16_t& aPriority) {
+  Accessible* acc = IdToAccessible(aID);
+  if (acc) {
+    acc->Announce(aAnnouncement, aPriority);
   }
 
   return IPC_OK();

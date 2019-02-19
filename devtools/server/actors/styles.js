@@ -114,11 +114,7 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
     return this.inspector.targetActor.window;
   },
 
-  form: function(detail) {
-    if (detail === "actorid") {
-      return this.actorID;
-    }
-
+  form: function() {
     // We need to use CSS from the inspected window in order to use CSS.supports() and
     // detect the right platform features from there.
     const CSS = this.inspector.targetActor.window.CSS;
@@ -131,8 +127,6 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
         // style cache. Clients requesting getApplied from actors that have not
         // been fixed must make sure cssLogic.highlight(node) was called before.
         getAppliedCreatesStyleCache: true,
-        // Whether addNewRule accepts the editAuthored argument.
-        authoredStyles: true,
         // Whether the page supports values of font-stretch from CSS Fonts Level 4.
         fontStretchLevel4: CSS.supports("font-stretch: 100%"),
         // Whether the page supports values of font-style from CSS Fonts Level 4.
@@ -936,13 +930,9 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
    * @param {NodeActor} node
    * @param {String} pseudoClasses The list of pseudo classes to append to the
    *        new selector.
-   * @param {Boolean} editAuthored
-   *        True if the selector should be updated by editing the
-   *        authored text; false if the selector should be updated via
-   *        CSSOM.
    * @returns {StyleRuleActor} the new rule
    */
-  async addNewRule(node, pseudoClasses, editAuthored = false) {
+  async addNewRule(node, pseudoClasses) {
     const style = this.getStyleElement(node.rawNode.ownerDocument);
     const sheet = style.sheet;
     const cssRules = sheet.cssRules;
@@ -966,12 +956,10 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
 
     // If inserting the rule succeeded, go ahead and edit the source
     // text if requested.
-    if (editAuthored) {
-      const sheetActor = this._sheetRef(sheet);
-      let {str: authoredText} = await sheetActor.getText();
-      authoredText += "\n" + selector + " {\n" + "}";
-      await sheetActor.update(authoredText, false);
-    }
+    const sheetActor = this._sheetRef(sheet);
+    let {str: authoredText} = await sheetActor.getText();
+    authoredText += "\n" + selector + " {\n" + "}";
+    await sheetActor.update(authoredText, false);
 
     return this.getNewAppliedProps(node, sheet.cssRules.item(index));
   },
@@ -1076,7 +1064,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
     let rule = this.rawRule;
 
     while (rule.parentRule) {
-      ancestors.push(this.pageStyle._styleRef(rule.parentRule));
+      ancestors.unshift(this.pageStyle._styleRef(rule.parentRule));
       rule = rule.parentRule;
     }
 
@@ -1097,10 +1085,12 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
    */
   get metadata() {
     const data = {};
+    data.id = this.actorID;
     // Collect information about the rule's ancestors (@media, @supports, @keyframes).
     // Used to show context for this change in the UI and to match the rule for undo/redo.
     data.ancestors = this.ancestorRules.map(rule => {
       return {
+        id: rule.actorID,
         // Rule type as number defined by CSSRule.type (ex: 4, 7, 12)
         // @see https://developer.mozilla.org/en-US/docs/Web/API/CSSRule
         type: rule.rawRule.type,
@@ -1118,7 +1108,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
     });
 
     // For changes in element style attributes, generate a unique selector.
-    if (this.type === ELEMENT_STYLE) {
+    if (this.type === ELEMENT_STYLE && this.rawNode) {
       // findCssSelector() fails on XUL documents. Catch and silently ignore that error.
       try {
         data.selector = findCssSelector(this.rawNode);
@@ -1134,6 +1124,12 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
         // Whether the element lives in a different frame than the host document.
         isFramed: this.rawNode.ownerGlobal !== this.pageStyle.ownerWindow,
       };
+
+      const nodeActor = this.pageStyle.walker.getNode(this.rawNode);
+      if (nodeActor) {
+        data.source.id = nodeActor.actorID;
+      }
+
       data.ruleIndex = 0;
     } else {
       data.selector = (this.type === CSSRule.KEYFRAME_RULE)
@@ -1143,6 +1139,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
         // Inline stylesheets have a null href; Use window URL instead.
         type: this.sheetActor.href ? "stylesheet" : "inline",
         href: this.sheetActor.href || this.sheetActor.window.location.toString(),
+        id: this.sheetActor.actorID,
         index: this.sheetActor.styleSheetIndex,
         // Whether the stylesheet lives in a different frame than the host document.
         isFramed: this.sheetActor.ownerWindow !== this.sheetActor.window,
@@ -1168,11 +1165,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
     return "[StyleRuleActor for " + this.rawRule + "]";
   },
 
-  form: function(detail) {
-    if (detail === "actorid") {
-      return this.actorID;
-    }
-
+  form: function() {
     const form = {
       actor: this.actorID,
       type: this.type,
@@ -1641,8 +1634,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
 
   /**
    * Helper method for tracking CSS changes. Logs the change of this rule's selector as
-   * two operations: a rule removal, including its CSS declarations, using the old
-   * selector and a rule addition using the new selector.
+   * two operations: a removal using the old selector and an addition using the new one.
    *
    * @param {String} oldSelector
    *        This rule's previous selector.
@@ -1650,31 +1642,18 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
    *        This rule's new selector.
    */
   logSelectorChange(oldSelector, newSelector) {
-    // Build a collection of CSS declarations existing on this rule.
-    const declarations = this._declarations.reduce((acc, decl, index) => {
-      acc.push({
-        property: decl.name,
-        value: decl.priority ? decl.value + " !important" : decl.value,
-        index,
-      });
-      return acc;
-    }, []);
-
-    // Logging two distinct operations to remove the old rule and add a new one.
-    // TODO: Make TrackChangeEmitter support transactions so these two operations are
-    // grouped together when implementing undo/redo.
     TrackChangeEmitter.trackChange({
       ...this.metadata,
-      type: "rule-remove",
+      type: "selector-remove",
       add: null,
-      remove: declarations,
+      remove: null,
       selector: oldSelector,
     });
 
     TrackChangeEmitter.trackChange({
       ...this.metadata,
-      type: "rule-add",
-      add: declarations,
+      type: "selector-add",
+      add: null,
       remove: null,
       selector: newSelector,
     });

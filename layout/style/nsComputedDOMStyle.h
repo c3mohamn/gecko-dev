@@ -9,8 +9,6 @@
 #ifndef nsComputedDOMStyle_h__
 #define nsComputedDOMStyle_h__
 
-#include "mozilla/ArenaRefPtr.h"
-#include "mozilla/ArenaRefPtrInlines.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/StyleComplexColor.h"
 #include "mozilla/UniquePtr.h"
@@ -53,9 +51,18 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
                                  public nsStubMutationObserver {
  private:
   // Convenience typedefs:
-  typedef nsCSSKTableEntry KTableEntry;
-  typedef mozilla::dom::CSSValue CSSValue;
-  typedef mozilla::StyleGeometryBox StyleGeometryBox;
+  using KTableEntry = nsCSSKTableEntry;
+  using CSSValue = mozilla::dom::CSSValue;
+  using StyleGeometryBox = mozilla::StyleGeometryBox;
+  using Element = mozilla::dom::Element;
+  using Document = mozilla::dom::Document;
+  using StyleFlexBasis = mozilla::StyleFlexBasis;
+  using StyleSize = mozilla::StyleSize;
+  using StyleMaxSize = mozilla::StyleMaxSize;
+  using LengthPercentage = mozilla::LengthPercentage;
+  using LengthPercentageOrAuto = mozilla::LengthPercentageOrAuto;
+  using StyleExtremumLength = mozilla::StyleExtremumLength;
+  using ComputedStyle = mozilla::ComputedStyle;
 
  public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -76,27 +83,23 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
     eAll           // Includes all stylesheets
   };
 
-  nsComputedDOMStyle(mozilla::dom::Element* aElement,
-                     const nsAString& aPseudoElt,
-                     mozilla::dom::Document* aDocument, StyleType aStyleType);
+  nsComputedDOMStyle(Element* aElement, const nsAString& aPseudoElt,
+                     Document* aDocument, StyleType aStyleType);
 
   nsINode* GetParentObject() override { return mElement; }
 
-  static already_AddRefed<mozilla::ComputedStyle> GetComputedStyle(
-      mozilla::dom::Element* aElement, nsAtom* aPseudo,
-      StyleType aStyleType = eAll);
+  static already_AddRefed<ComputedStyle> GetComputedStyle(
+      Element* aElement, nsAtom* aPseudo, StyleType aStyleType = eAll);
 
-  static already_AddRefed<mozilla::ComputedStyle> GetComputedStyleNoFlush(
-      mozilla::dom::Element* aElement, nsAtom* aPseudo,
-      StyleType aStyleType = eAll) {
+  static already_AddRefed<ComputedStyle> GetComputedStyleNoFlush(
+      Element* aElement, nsAtom* aPseudo, StyleType aStyleType = eAll) {
     return DoGetComputedStyleNoFlush(
         aElement, aPseudo, nsContentUtils::GetPresShellForContent(aElement),
         aStyleType);
   }
 
-  static already_AddRefed<mozilla::ComputedStyle>
-  GetUnanimatedComputedStyleNoFlush(mozilla::dom::Element* aElement,
-                                    nsAtom* aPseudo);
+  static already_AddRefed<ComputedStyle> GetUnanimatedComputedStyleNoFlush(
+      Element* aElement, nsAtom* aPseudo);
 
   // Helper for nsDOMWindowUtils::GetVisitedDependentComputedStyle
   void SetExposeVisitedStyle(bool aExpose) {
@@ -146,14 +149,13 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 
   // Helper functions called by UpdateCurrentStyleSources.
   void ClearComputedStyle();
-  void SetResolvedComputedStyle(RefPtr<mozilla::ComputedStyle>&& aContext,
+  void SetResolvedComputedStyle(RefPtr<ComputedStyle>&& aContext,
                                 uint64_t aGeneration);
-  void SetFrameComputedStyle(mozilla::ComputedStyle* aStyle,
-                             uint64_t aGeneration);
+  void SetFrameComputedStyle(ComputedStyle* aStyle, uint64_t aGeneration);
 
-  static already_AddRefed<mozilla::ComputedStyle> DoGetComputedStyleNoFlush(
-      mozilla::dom::Element* aElement, nsAtom* aPseudo,
-      nsIPresShell* aPresShell, StyleType aStyleType);
+  static already_AddRefed<ComputedStyle> DoGetComputedStyleNoFlush(
+      Element* aElement, nsAtom* aPseudo, nsIPresShell* aPresShell,
+      StyleType aStyleType);
 
 #define STYLE_STRUCT(name_)                \
   const nsStyle##name_* Style##name_() {   \
@@ -162,16 +164,22 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 #include "nsStyleStructList.h"
 #undef STYLE_STRUCT
 
+  /**
+   * A method to get a percentage base for a percentage value.  Returns true
+   * if a percentage base value was determined, false otherwise.
+   */
+  typedef bool (nsComputedDOMStyle::*PercentageBaseGetter)(nscoord&);
+
   already_AddRefed<CSSValue> GetEllipseRadii(const nsStyleCorners& aRadius,
                                              mozilla::Corner aFullCorner);
 
   already_AddRefed<CSSValue> GetOffsetWidthFor(mozilla::Side aSide);
 
-  already_AddRefed<CSSValue> GetAbsoluteOffset(mozilla::Side aSide);
-
-  already_AddRefed<CSSValue> GetRelativeOffset(mozilla::Side aSide);
-
-  already_AddRefed<CSSValue> GetStickyOffset(mozilla::Side aSide);
+  already_AddRefed<CSSValue> GetAbsoluteOffset(mozilla::Side);
+  nscoord GetUsedAbsoluteOffset(mozilla::Side);
+  already_AddRefed<CSSValue> GetNonStaticPositionOffset(
+      mozilla::Side aSide, bool aResolveAuto, PercentageBaseGetter aWidthGetter,
+      PercentageBaseGetter aHeightGetter);
 
   already_AddRefed<CSSValue> GetStaticOffset(mozilla::Side aSide);
 
@@ -289,9 +297,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetBorderTopRightRadius();
 
   /* Border Image */
-  already_AddRefed<CSSValue> DoGetBorderImageSlice();
   already_AddRefed<CSSValue> DoGetBorderImageWidth();
-  already_AddRefed<CSSValue> DoGetBorderImageOutset();
 
   /* Box Shadow */
   already_AddRefed<CSSValue> DoGetBoxShadow();
@@ -325,7 +331,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetTextShadow();
   already_AddRefed<CSSValue> DoGetLetterSpacing();
   already_AddRefed<CSSValue> DoGetWordSpacing();
-  already_AddRefed<CSSValue> DoGetTabSize();
   already_AddRefed<CSSValue> DoGetWebkitTextStrokeWidth();
 
   /* Display properties */
@@ -344,7 +349,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 
   /* User interface properties */
   already_AddRefed<CSSValue> DoGetCaretColor();
-  already_AddRefed<CSSValue> DoGetCursor();
   already_AddRefed<CSSValue> DoGetForceBrokenImageIcon();
 
   /* Column properties */
@@ -397,18 +401,29 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   /* Helper functions */
   void SetValueFromComplexColor(nsROCSSPrimitiveValue* aValue,
                                 const mozilla::StyleComplexColor& aColor);
-  void SetValueToPositionCoord(const mozilla::Position::Coord& aCoord,
-                               nsROCSSPrimitiveValue* aValue);
   void SetValueToPosition(const mozilla::Position& aPosition,
                           nsDOMCSSValueList* aValueList);
   void SetValueToURLValue(const mozilla::css::URLValue* aURL,
                           nsROCSSPrimitiveValue* aValue);
 
-  /**
-   * A method to get a percentage base for a percentage value.  Returns true
-   * if a percentage base value was determined, false otherwise.
-   */
-  typedef bool (nsComputedDOMStyle::*PercentageBaseGetter)(nscoord&);
+  void SetValueToSize(nsROCSSPrimitiveValue* aValue, const mozilla::StyleSize&,
+                      nscoord aMinAppUnits = nscoord_MIN,
+                      nscoord aMaxAppUnits = nscoord_MAX);
+
+  void SetValueToLengthPercentageOrAuto(nsROCSSPrimitiveValue* aValue,
+                                        const LengthPercentageOrAuto&,
+                                        bool aClampNegativeCalc);
+
+  void SetValueToLengthPercentage(nsROCSSPrimitiveValue* aValue,
+                                  const LengthPercentage&,
+                                  bool aClampNegativeCalc,
+                                  nscoord aMinAppUnits = nscoord_MIN,
+                                  nscoord aMaxAppUnits = nscoord_MAX);
+
+  void SetValueToMaxSize(nsROCSSPrimitiveValue* aValue, const StyleMaxSize&);
+
+  void SetValueToExtremumLength(nsROCSSPrimitiveValue* aValue,
+                                StyleExtremumLength);
 
   /**
    * Method to set aValue to aCoord.  If aCoord is a percentage value and
@@ -434,12 +449,23 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   /**
    * If aCoord is a eStyleUnit_Coord returns the nscoord.  If it's
    * eStyleUnit_Percent, attempts to resolve the percentage base and returns
-   * the resulting nscoord.  If it's some other unit or a percentge base can't
+   * the resulting nscoord.  If it's some other unit or a percentage base can't
    * be determined, returns aDefaultValue.
    */
-  nscoord StyleCoordToNSCoord(const nsStyleCoord& aCoord,
+  nscoord StyleCoordToNSCoord(const LengthPercentage& aCoord,
                               PercentageBaseGetter aPercentageBaseGetter,
                               nscoord aDefaultValue, bool aClampNegativeCalc);
+  template <typename LengthPercentageLike>
+  nscoord StyleCoordToNSCoord(const LengthPercentageLike& aCoord,
+                              PercentageBaseGetter aPercentageBaseGetter,
+                              nscoord aDefaultValue, bool aClampNegativeCalc) {
+    if (aCoord.IsLengthPercentage()) {
+      return StyleCoordToNSCoord(aCoord.AsLengthPercentage(),
+                                 aPercentageBaseGetter, aDefaultValue,
+                                 aClampNegativeCalc);
+    }
+    return aDefaultValue;
+  }
 
   /**
    * Append coord values from four sides. It omits values when possible.
@@ -448,7 +474,9 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
                                  const nsStyleSides& aValues);
 
   bool GetCBContentWidth(nscoord& aWidth);
-  bool GetCBContentHeight(nscoord& aWidth);
+  bool GetCBContentHeight(nscoord& aHeight);
+  bool GetCBPaddingRectWidth(nscoord& aWidth);
+  bool GetCBPaddingRectHeight(nscoord& aHeight);
   bool GetScrollFrameContentWidth(nscoord& aWidth);
   bool GetScrollFrameContentHeight(nscoord& aHeight);
   bool GetFrameBoundsWidthForTransform(nscoord& aWidth);
@@ -478,7 +506,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 
   // Find out if we can safely skip flushing for aDocument (i.e. pending
   // restyles does not affect mContent).
-  bool NeedsToFlush(mozilla::dom::Document*) const;
+  bool NeedsToFlush(Document*) const;
 
   static ComputedStyleMap* GetComputedStyleMap();
 
@@ -486,7 +514,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   // Given the way GetComputedStyle is currently used, we should just grab the
   // presshell, if any, from the document.
   nsWeakPtr mDocumentWeak;
-  RefPtr<mozilla::dom::Element> mElement;
+  RefPtr<Element> mElement;
 
   /**
    * Strong reference to the ComputedStyle we access data from.  This can be
@@ -500,11 +528,8 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
    * in this case will check that the ComputedStyle is still valid to be used,
    * by checking whether flush styles results in any restyles having been
    * processed.
-   *
-   * Since an ArenaRefPtr is used to hold the ComputedStyle, it will be cleared
-   * if the pres arena from which it was allocated goes away.
    */
-  mozilla::ArenaRefPtr<mozilla::ComputedStyle> mComputedStyle;
+  RefPtr<ComputedStyle> mComputedStyle;
   RefPtr<nsAtom> mPseudo;
 
   /*
@@ -532,9 +557,12 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 
   /**
    * The nsComputedDOMStyle generation at the time we last resolved a style
-   * context and stored it in mComputedStyle.
+   * context and stored it in mComputedStyle, and the pres shell we got the
+   * style from. Should only be used together.
    */
-  uint64_t mComputedStyleGeneration;
+  uint64_t mComputedStyleGeneration = 0;
+
+  uint32_t mPresShellId = 0;
 
   bool mExposeVisitedStyle;
 

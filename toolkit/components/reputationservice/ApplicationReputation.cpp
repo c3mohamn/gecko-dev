@@ -29,6 +29,7 @@
 
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/Components.h"
 #include "mozilla/ErrorNames.h"
 #include "mozilla/LoadContext.h"
 #include "mozilla/Preferences.h"
@@ -368,7 +369,7 @@ nsresult PendingDBLookup::LookupSpecInternal(const nsACString& aSpec) {
   // blacklisted.
   LOG(("Checking DB service for principal %s [this = %p]", mSpec.get(), this));
   nsCOMPtr<nsIUrlClassifierDBService> dbService =
-      do_GetService(NS_URLCLASSIFIERDBSERVICE_CONTRACTID, &rv);
+      mozilla::components::UrlClassifierDB::Service(&rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsAutoCString tables;
@@ -483,12 +484,14 @@ static const char* const kBinaryFileExtensions[] = {
     ".com",        // Windows executable
     ".command",    // Mac script
     ".cpgz",       // Mac archive
-    ".cpi",        // Control Panel Item. Executable used for adding icons to Control Panel
+    ".cpi",        // Control Panel Item. Executable used for adding icons
+                   // to Control Panel
     //".cpio",
-    ".cpl",         // Windows executable
-    ".crt",         // Windows signed certificate
-    ".crx",         // Chrome extensions
-    ".csh",         // Linux shell
+    ".cpl",  // Windows executable
+    ".crt",  // Windows signed certificate
+    ".crx",  // Chrome extensions
+    ".csh",  // Linux shell
+    //".csv",
     ".dart",        // Mac disk image
     ".dc42",        // Apple DiskCopy Image
     ".deb",         // Linux package
@@ -501,29 +504,34 @@ static const char* const kBinaryFileExtensions[] = {
     ".dll",         // Windows executable
     ".dmg",         // Mac disk image
     ".dmgpart",     // Mac disk image
-    //".docb", // MS Office
-    //".docm", // MS Word
-    //".docx", // MS Word
-    //".dotm", // MS Word
-    //".dott", // MS Office
-    ".drv",   // Windows driver
-    ".dvdr",  // Mac Disk image
-    ".efi",   // Firmware
-    ".eml",   // MS Outlook
-    ".exe",   // Windows executable
+    ".doc",         // MS Office
+    ".docb",        // MS Office
+    ".docm",        // MS Word
+    ".docx",        // MS Word
+    ".dot",         // MS Word
+    ".dotm",        // MS Word
+    ".dott",        // MS Office
+    ".dotx",        // MS Word
+    ".drv",         // Windows driver
+    ".dvdr",        // Mac Disk image
+    ".efi",         // Firmware
+    ".eml",         // MS Outlook
+    ".exe",         // Windows executable
     //".fat",
     ".fon",     // Windows font
     ".fxp",     // MS FoxPro
     ".gadget",  // Windows
-    ".grp",     // Windows
-    ".gz",      // Linux archive (gzip)
-    ".gzip",    // Linux archive (gzip)
-    ".hfs",     // Mac disk image
-    ".hlp",     // Windows Help
-    ".hqx",     // Mac archive
-    ".hta",     // HTML trusted application
+    //".gif",
+    ".grp",   // Windows
+    ".gz",    // Linux archive (gzip)
+    ".gzip",  // Linux archive (gzip)
+    ".hfs",   // Mac disk image
+    ".hlp",   // Windows Help
+    ".hqx",   // Mac archive
+    ".hta",   // HTML trusted application
     ".htm", ".html",
-    ".htt",      // MS HTML template
+    ".htt",  // MS HTML template
+    //".ica",
     ".img",      // Mac disk image
     ".imgpart",  // Mac disk image
     ".inf",      // Windows installer
@@ -536,6 +544,8 @@ static const char* const kBinaryFileExtensions[] = {
     ".jar",   // Java
     ".jnlp",  // Java
     //".job", // Windows
+    //".jpg",
+    //".jpeg",
     ".js",   // JavaScript script
     ".jse",  // JScript
     ".ksh",  // Linux shell
@@ -568,21 +578,25 @@ static const char* const kBinaryFileExtensions[] = {
     ".mht",       // MS HTML
     ".mhtml",     // MS HTML
     ".mim",       // MS Mail
-    ".mmc",       // MS Office
-    ".mof",       // Windows
-    ".mpkg",      // Mac installer
-    ".msc",       // Windows executable
-    ".msg",       // MS Outlook
-    ".msh",       // Windows shell
-    ".msh1",      // Windows shell
-    ".msh1xml",   // Windows shell
-    ".msh2",      // Windows shell
-    ".msh2xml",   // Windows shell
-    ".mshxml",    // Windows
-    ".msi",       // Windows installer
-    ".msp",       // Windows installer
-    ".mst",       // Windows installer
-    ".ndif",      // Mac disk image
+    //".mkv",
+    ".mmc",  // MS Office
+    ".mof",  // Windows
+    //".mov",
+    //".mp3",
+    //".mp4",
+    ".mpkg",     // Mac installer
+    ".msc",      // Windows executable
+    ".msg",      // MS Outlook
+    ".msh",      // Windows shell
+    ".msh1",     // Windows shell
+    ".msh1xml",  // Windows shell
+    ".msh2",     // Windows shell
+    ".msh2xml",  // Windows shell
+    ".mshxml",   // Windows
+    ".msi",      // Windows installer
+    ".msp",      // Windows installer
+    ".mst",      // Windows installer
+    ".ndif",     // Mac disk image
     //".ntfs", // 7z
     ".ocx",   // ActiveX
     ".ops",   // MS Office
@@ -590,6 +604,7 @@ static const char* const kBinaryFileExtensions[] = {
     ".osax",  // AppleScript
     //".out", // Linux binary
     ".oxt",  // OpenOffice extension, can execute arbitrary code
+    //".package",
     //".paf", // PortableApps package
     //".paq8f",
     //".paq8jd",
@@ -605,11 +620,17 @@ static const char* const kBinaryFileExtensions[] = {
     ".pkg",  // Mac installer
     ".pl",   // Perl script
     ".plg",  // MS Visual Studio
-    //".potx", // MS PowerPoint
-    //".ppam", // MS PowerPoint
-    //".ppsx", // MS PowerPoint
-    //".pptm", // MS PowerPoint
-    //".pptx", // MS PowerPoint
+    //".png",
+    ".pot",     // MS PowerPoint
+    ".potm",    // MS PowerPoint
+    ".potx",    // MS PowerPoint
+    ".ppam",    // MS PowerPoint
+    ".pps",     // MS PowerPoint
+    ".ppsm",    // MS PowerPoint
+    ".ppsx",    // MS PowerPoint
+    ".ppt",     // MS PowerPoint
+    ".pptm",    // MS PowerPoint
+    ".pptx",    // MS PowerPoint
     ".prf",     // MS Outlook
     ".prg",     // Windows
     ".ps1",     // Windows shell
@@ -662,7 +683,7 @@ static const char* const kBinaryFileExtensions[] = {
     ".rels",  // MS Office
     //".rgs", // Windows Registry
     ".rpm",  // Linux package
-    //".rtf", // MS Office
+    ".rtf",  // MS Office
     //".run", // Linux shell
     ".scf",                // Windows shell
     ".scpt",               // AppleScript
@@ -679,14 +700,14 @@ static const char* const kBinaryFileExtensions[] = {
     ".shtml",              // HTML
     ".shtm",               // HTML
     ".sht",                // HTML
-    //".sldm", // MS PowerPoint
-    //".sldx", // MS PowerPoint
-    ".slk",           // MS Excel
-    ".slp",           // Linux package
-    ".smi",           // Mac disk image
-    ".sparsebundle",  // Mac disk image
-    ".sparseimage",   // Mac disk image
-    ".spl",           // Adobe Flash
+    ".sldm",               // MS PowerPoint
+    ".sldx",               // MS PowerPoint
+    ".slk",                // MS Excel
+    ".slp",                // Linux package
+    ".smi",                // Mac disk image
+    ".sparsebundle",       // Mac disk image
+    ".sparseimage",        // Mac disk image
+    ".spl",                // Adobe Flash
     //".squashfs",
     ".svg",
     ".swf",   // Adobe Flash
@@ -697,12 +718,14 @@ static const char* const kBinaryFileExtensions[] = {
     ".tbz",   // Linux archive (bzip2)
     ".tbz2",  // Linux archive (bzip2)
     ".tcsh",  // Linux shell
-    ".tgz",   // Linux archive (gzip)
+    //".tif",
+    ".tgz",  // Linux archive (gzip)
     //".toast", // Roxio disk image
     ".torrent",  // Bittorrent
     ".tpz",      // Linux archive (gzip)
-    ".txz",      // Linux archive (xz)
-    ".tz",       // Linux archive (gzip)
+    //".txt",
+    ".txz",  // Linux archive (xz)
+    ".tz",   // Linux archive (gzip)
     //".u3p", // U3 Smart Apps
     ".udf",   // MS Excel
     ".udif",  // Mac disk image
@@ -730,8 +753,10 @@ static const char* const kBinaryFileExtensions[] = {
     ".vsw",       // MS Visio
     ".vsx",       // MS Visio
     ".vtx",       // MS Visio
-    ".website",   // Windows
-    ".wim",       // Windows Imaging
+    //".wav",
+    //".webp",
+    ".website",  // Windows
+    ".wim",      // Windows Imaging
     //".workflow", // Mac Automator
     //".wrc", // FreeArc archive
     ".ws",    // Windows script
@@ -741,12 +766,21 @@ static const char* const kBinaryFileExtensions[] = {
     ".xar",   // MS Excel
     ".xbap",  // XAML Browser Application
     ".xhtml", ".xhtm", ".xht",
-    ".xip",  // Mac archive
-    //".xlsm", // MS Excel
-    //".xlsx", // MS Excel
-    //".xltm", // MS Excel
-    //".xltx", // MS Excel
-    ".xml",
+    ".xip",     // Mac archive
+    ".xla",     // MS Excel
+    ".xlam",    // MS Excel
+    ".xldm",    // MS Excel
+    ".xll",     // MS Excel
+    ".xlm",     // MS Excel
+    ".xls",     // MS Excel
+    ".xlsb",    // MS Excel
+    ".xlsm",    // MS Excel
+    ".xlsx",    // MS Excel
+    ".xlt",     // MS Excel
+    ".xltm",    // MS Excel
+    ".xltx",    // MS Excel
+    ".xlw",     // MS Excel
+    ".xml",     // MS Excel
     ".xnk",     // MS Exchange
     ".xrm-ms",  // Windows
     ".xsl",     // XML Stylesheet
@@ -779,16 +813,22 @@ static const char* const kZipFileExtensions[] = {
     ".zipx",  // WinZip
 };
 
+static const char* GetFileExt(const nsACString& aFilename,
+                              const char* const aFileExtensions[],
+                              const size_t aLength) {
+  for (size_t i = 0; i < aLength; ++i) {
+    if (StringEndsWith(aFilename, nsDependentCString(aFileExtensions[i]))) {
+      return aFileExtensions[i];
+    }
+  }
+  return nullptr;
+}
+
 // Returns true if the file extension matches one in the given array.
 static bool IsFileType(const nsACString& aFilename,
                        const char* const aFileExtensions[],
                        const size_t aLength) {
-  for (size_t i = 0; i < aLength; ++i) {
-    if (StringEndsWith(aFilename, nsDependentCString(aFileExtensions[i]))) {
-      return true;
-    }
-  }
-  return false;
+  return GetFileExt(aFilename, aFileExtensions, aLength) != nullptr;
 }
 
 ClientDownloadRequest::DownloadType PendingLookup::GetDownloadType(
@@ -1524,8 +1564,15 @@ nsresult PendingLookup::SendRemoteQueryInternal(Reason& aReason) {
   if (!mRequest.SerializeToString(&serialized)) {
     return NS_ERROR_UNEXPECTED;
   }
-  LOG(("Serialized protocol buffer [this = %p]: (length=%zu) %s", this,
-       serialized.length(), serialized.c_str()));
+
+  if (LOG_ENABLED()) {
+    nsAutoCString serializedStr(serialized.c_str(), serialized.length());
+    serializedStr.ReplaceSubstring(NS_LITERAL_CSTRING("\0"),
+                                   NS_LITERAL_CSTRING("\\0"));
+
+    LOG(("Serialized protocol buffer [this = %p]: (length=%d) %s", this,
+         serializedStr.Length(), serializedStr.get()));
+  }
 
   // Set the input stream to the serialized protocol buffer
   nsCOMPtr<nsIStringInputStream> sstream =
@@ -1573,7 +1620,7 @@ nsresult PendingLookup::SendRemoteQueryInternal(Reason& aReason) {
 
   mTelemetryRemoteRequestStartMs = PR_IntervalNow();
 
-  rv = mChannel->AsyncOpen2(this);
+  rv = mChannel->AsyncOpen(this);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
@@ -1726,6 +1773,10 @@ nsresult PendingLookup::OnStopRequestInternal(nsIRequest* aRequest,
   // Clamp responses 0-7, we only know about 0-4 for now.
   Accumulate(mozilla::Telemetry::APPLICATION_REPUTATION_SERVER_VERDICT,
              std::min<uint32_t>(response.verdict(), 7));
+  AccumulateCategoricalKeyed(
+      nsCString(GetFileExt(mFileName, kBinaryFileExtensions,
+                           ArrayLength(kBinaryFileExtensions))),
+      VerdictToLabel(std::min<uint32_t>(response.verdict(), 7)));
   switch (response.verdict()) {
     case safe_browsing::ClientDownloadResponse::DANGEROUS:
       aVerdict = nsIApplicationReputationService::VERDICT_DANGEROUS;

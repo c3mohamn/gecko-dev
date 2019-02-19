@@ -11,7 +11,6 @@
 #include "nsIDocShell.h"
 #include "nsDocShellLoadState.h"
 #include "nsIWebNavigation.h"
-#include "nsCDefaultURIFixup.h"
 #include "nsIURIFixup.h"
 #include "nsIURL.h"
 #include "nsIURIMutator.h"
@@ -31,10 +30,12 @@
 #include "nsGlobalWindow.h"
 #include "mozilla/Likely.h"
 #include "nsCycleCollectionParticipant.h"
+#include "mozilla/Components.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/LocationBinding.h"
 #include "mozilla/dom/ScriptSettings.h"
+#include "ReferrerInfo.h"
 
 namespace mozilla {
 namespace dom {
@@ -151,8 +152,9 @@ already_AddRefed<nsDocShellLoadState> Location::CheckURL(
   loadState->SetTriggeringPrincipal(triggeringPrincipal);
 
   if (sourceURI) {
-    loadState->SetReferrer(sourceURI);
-    loadState->SetReferrerPolicy(referrerPolicy);
+    nsCOMPtr<nsIReferrerInfo> referrerInfo =
+        new ReferrerInfo(sourceURI, referrerPolicy);
+    loadState->SetReferrerInfo(referrerInfo);
   }
 
   return loadState.forget();
@@ -192,8 +194,7 @@ nsresult Location::GetURI(nsIURI** aURI, bool aGetInnermostURI) {
 
   NS_ASSERTION(uri, "nsJARURI screwed up?");
 
-  nsCOMPtr<nsIURIFixup> urifixup(do_GetService(NS_URIFIXUP_CONTRACTID, &rv));
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsCOMPtr<nsIURIFixup> urifixup(components::URIFixup::Service());
 
   return urifixup->CreateExposableURI(uri, aURI);
 }

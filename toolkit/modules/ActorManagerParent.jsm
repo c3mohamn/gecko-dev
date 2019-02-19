@@ -95,8 +95,9 @@
 
 var EXPORTED_SYMBOLS = ["ActorManagerParent"];
 
-ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {ExtensionUtils} = ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
 
 const {DefaultMap} = ExtensionUtils;
 
@@ -182,6 +183,15 @@ let ACTORS = {
       messages: [
         "Finder:Initialize",
       ],
+    },
+  },
+
+  KeyPressEventModelChecker: {
+    child: {
+      module: "resource://gre/actors/KeyPressEventModelCheckerChild.jsm",
+      events: {
+        "CheckKeyPressEventModel": {capture: true, mozSystemGroup: true},
+      },
     },
   },
 
@@ -327,6 +337,21 @@ let ACTORS = {
     },
   },
 };
+
+if (AppConstants.NIGHTLY_BUILD) {
+  ACTORS.PictureInPicture = {
+    child: {
+      module: "resource://gre/actors/PictureInPictureChild.jsm",
+      events: {
+        "MozTogglePictureInPicture": {capture: true, wantUntrusted: true},
+      },
+
+      messages: [
+        "PictureInPicture:SetupPlayer",
+      ],
+    },
+  };
+}
 
 class ActorSet {
   constructor(group, actorSide) {

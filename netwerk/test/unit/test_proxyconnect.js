@@ -20,8 +20,7 @@
 // 2. StopRequest callback called
 // 3. done
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 // -1 then initialized with an actual port from the serversocket
 var socketserver_port = -1;
@@ -287,7 +286,7 @@ function test_connectonly() {
   Services.prefs.setIntPref("network.proxy.type", 1);
 
   var chan = makeChan();
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 
   do_test_pending();
 }
@@ -295,7 +294,7 @@ function test_connectonly() {
 function test_connectonly_noproxy() {
   clearPrefs()
   var chan = makeChan();
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 
   do_test_pending();
 }
@@ -309,7 +308,7 @@ function test_connectonly_nonhttp() {
   Services.prefs.setIntPref("network.proxy.type", 1)
 
   var chan = makeChan()
-  chan.asyncOpen2(listener)
+  chan.asyncOpen(listener)
 
   do_test_pending()
 }

@@ -23,7 +23,7 @@ stubPreparedMessages.set(`Unknown property ‘such-unknown-property’.  Declara
   "level": "warn",
   "messageText": "Unknown property ‘such-unknown-property’.  Declaration dropped.",
   "parameters": null,
-  "repeatId": "{\"frame\":{\"source\":\"http://example.com/browser/devtools/client/webconsole/test/fixtures/stub-generators/test-css-message.html\",\"line\":3,\"column\":25},\"groupId\":null,\"indent\":0,\"level\":\"warn\",\"messageText\":\"Unknown property ‘such-unknown-property’.  Declaration dropped.\",\"parameters\":null,\"source\":\"css\",\"type\":\"log\",\"userProvidedStyles\":null,\"private\":false}",
+  "repeatId": "{\"frame\":{\"source\":\"http://example.com/browser/devtools/client/webconsole/test/fixtures/stub-generators/test-css-message.html\",\"line\":3,\"column\":25},\"groupId\":null,\"indent\":0,\"level\":\"warn\",\"messageText\":\"Unknown property ‘such-unknown-property’.  Declaration dropped.\",\"parameters\":null,\"source\":\"css\",\"type\":\"log\",\"userProvidedStyles\":null,\"private\":false,\"stacktrace\":null}",
   "stacktrace": null,
   "frame": {
     "source": "http://example.com/browser/devtools/client/webconsole/test/fixtures/stub-generators/test-css-message.html",
@@ -31,6 +31,7 @@ stubPreparedMessages.set(`Unknown property ‘such-unknown-property’.  Declara
     "column": 25
   },
   "groupId": null,
+  "errorMessageName": "",
   "userProvidedStyles": null,
   "notes": null,
   "indent": 0,
@@ -48,7 +49,7 @@ stubPreparedMessages.set(`Error in parsing value for ‘padding-top’.  Declara
   "level": "warn",
   "messageText": "Error in parsing value for ‘padding-top’.  Declaration dropped.",
   "parameters": null,
-  "repeatId": "{\"frame\":{\"source\":\"http://example.com/browser/devtools/client/webconsole/test/fixtures/stub-generators/test-css-message.html\",\"line\":3,\"column\":16},\"groupId\":null,\"indent\":0,\"level\":\"warn\",\"messageText\":\"Error in parsing value for ‘padding-top’.  Declaration dropped.\",\"parameters\":null,\"source\":\"css\",\"type\":\"log\",\"userProvidedStyles\":null,\"private\":false}",
+  "repeatId": "{\"frame\":{\"source\":\"http://example.com/browser/devtools/client/webconsole/test/fixtures/stub-generators/test-css-message.html\",\"line\":3,\"column\":16},\"groupId\":null,\"indent\":0,\"level\":\"warn\",\"messageText\":\"Error in parsing value for ‘padding-top’.  Declaration dropped.\",\"parameters\":null,\"source\":\"css\",\"type\":\"log\",\"userProvidedStyles\":null,\"private\":false,\"stacktrace\":null}",
   "stacktrace": null,
   "frame": {
     "source": "http://example.com/browser/devtools/client/webconsole/test/fixtures/stub-generators/test-css-message.html",
@@ -56,6 +57,7 @@ stubPreparedMessages.set(`Error in parsing value for ‘padding-top’.  Declara
     "column": 16
   },
   "groupId": null,
+  "errorMessageName": "",
   "userProvidedStyles": null,
   "notes": null,
   "indent": 0,

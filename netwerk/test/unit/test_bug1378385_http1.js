@@ -25,8 +25,8 @@
 //    Second, we check if the request id of the rest requests is equal to focused
 //    window id.
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var server = new HttpServer();
 server.start(-1);
@@ -66,7 +66,7 @@ function createHttpRequest(windowId, requestId, priority) {
   var listner = new HttpResponseListener(requestId);
   chan.setRequestHeader("X-ID", requestId, false);
   chan.setRequestHeader("Cache-control", "no-store", false);
-  chan.asyncOpen2(listner);
+  chan.asyncOpen(listner);
   log("Create http request id=" + requestId);
 }
 

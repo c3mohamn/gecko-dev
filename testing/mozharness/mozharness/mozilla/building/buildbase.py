@@ -906,6 +906,11 @@ or run without that action (ie: --no-{action})"
         if c.get('check_test_env'):
             for env_var, env_value in c['check_test_env'].iteritems():
                 check_test_env[env_var] = env_value % dirs
+        # Check tests don't upload anything, however our mozconfigs depend on
+        # UPLOAD_PATH, so we prevent configure from re-running by keeping the
+        # environments consistent.
+        if c.get('upload_env'):
+            check_test_env.update(c['upload_env'])
         return check_test_env
 
     def _rm_old_package(self):
@@ -1389,8 +1394,16 @@ or run without that action (ie: --no-{action})"
         with open(stats_file, 'rb') as fh:
             stats = json.load(fh)
 
-        total = stats['stats']['requests_executed']
-        hits = stats['stats']['cache_hits']
+        def get_stat(key):
+            val = stats['stats'][key]
+            # Future versions of sccache will distinguish stats by language
+            # and store them as a dict.
+            if isinstance(val, dict):
+                val = sum(val['counts'].values())
+            return val
+
+        total = get_stat('requests_executed')
+        hits = get_stat('cache_hits')
         if total > 0:
             hits /= float(total)
 

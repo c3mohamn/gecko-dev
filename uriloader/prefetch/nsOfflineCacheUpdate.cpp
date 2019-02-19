@@ -5,7 +5,6 @@
 
 #include "nsOfflineCacheUpdate.h"
 
-#include "nsCPrefetchService.h"
 #include "nsCURILoader.h"
 #include "nsIApplicationCacheContainer.h"
 #include "nsIApplicationCacheChannel.h"
@@ -185,7 +184,7 @@ nsresult nsManifestCheck::Begin() {
     MOZ_ASSERT(NS_SUCCEEDED(rv));
   }
 
-  return mChannel->AsyncOpen2(this);
+  return mChannel->AsyncOpen(this);
 }
 
 //-----------------------------------------------------------------------------
@@ -366,7 +365,7 @@ nsresult nsOfflineCacheUpdateItem::OpenChannel(nsOfflineCacheUpdate *aUpdate) {
     MOZ_ASSERT(NS_SUCCEEDED(rv));
   }
 
-  rv = mChannel->AsyncOpen2(this);
+  rv = mChannel->AsyncOpen(this);
   NS_ENSURE_SUCCESS(rv, rv);
 
   mUpdate = aUpdate;

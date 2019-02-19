@@ -442,6 +442,10 @@ add_task(async function testExtensionControlledDefaultSearch() {
     },
   };
 
+  // This test is comparing nsISearchEngines by reference, so we need to initialize
+  // the SearchService here.
+  await Services.search.init();
+
   function setEngine(engine) {
     doc.querySelector(`#defaultEngine menuitem[label="${engine.name}"]`)
        .doCommand();
@@ -491,6 +495,8 @@ add_task(async function testExtensionControlledDefaultSearch() {
 
   // Setting the engine back to the extension's engine does not show the message.
   setEngine(extensionEngine);
+  // Wait a tick for the Search Service's promises to resolve.
+  await new Promise(resolve => executeSoon(resolve));
 
   is(extensionEngine, Services.search.defaultEngine,
      "default search engine is set back to extension");
@@ -756,7 +762,7 @@ add_task(async function testExtensionControlledProxyConfig() {
             ...doc.querySelectorAll("#networkProxySOCKSVersion > radio")],
           pacControls: [doc.getElementById("networkProxyAutoconfigURL")],
           otherControls: [
-            manualControlContainer.querySelector("label[control=networkProxyNone]"),
+            doc.querySelector("label[control=networkProxyNone]"),
             doc.getElementById("networkProxyNone"),
             ...controlGroup.querySelectorAll(":scope > radio"),
             ...doc.querySelectorAll("#ConnectionsDialogPane > checkbox")],

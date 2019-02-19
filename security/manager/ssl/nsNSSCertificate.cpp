@@ -45,7 +45,7 @@
 #include "ssl.h"
 
 #ifdef XP_WIN
-#include <winsock.h>  // for htonl
+#  include <winsock.h>  // for htonl
 #endif
 
 using namespace mozilla;
@@ -1227,9 +1227,8 @@ nsNSSCertificate::Read(nsIObjectInputStream* aStream) {
 }
 
 NS_IMETHODIMP
-nsNSSCertificate::GetInterfaces(uint32_t* count, nsIID*** array) {
-  *count = 0;
-  *array = nullptr;
+nsNSSCertificate::GetInterfaces(nsTArray<nsIID>& array) {
+  array.Clear();
   return NS_OK;
 }
 

@@ -1,6 +1,6 @@
 // Make sure we behave appropriately when asking for content-disposition
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const path = "data/test_bug589292.zip";
 
@@ -9,7 +9,7 @@ function run_test() {
             getService(Ci.nsIIOService);
   var spec = "jar:" + ios.newFileURI(do_get_file(path)).spec + "!/foo.txt";
   var channel = NetUtil.newChannel({uri: spec, loadUsingSystemPrincipal: true});
-  instr = channel.open2();
+  instr = channel.open();
   var val;
   try {
     val = channel.contentDisposition;

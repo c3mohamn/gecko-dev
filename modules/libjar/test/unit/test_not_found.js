@@ -1,6 +1,6 @@
 // Should report file not found on non-existent files
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 const path = "data/test_bug333423.zip";
 
 function run_test() {
@@ -12,7 +12,7 @@ function run_test() {
     loadUsingSystemPrincipal: true
   });
   try {
-    instr = channel.open2();
+    instr = channel.open();
     do_throw("Failed to report that file doesn't exist")
   } catch (e) {
       Assert.ok(e.name == "NS_ERROR_FILE_NOT_FOUND")

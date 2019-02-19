@@ -33,7 +33,7 @@
 #include "mozilla/layers/TextureHostOGL.h"  // for TextureSourceOGL, etc
 #include "mozilla/layers/PTextureParent.h"  // for OtherPid() on PTextureParent
 #ifdef XP_DARWIN
-#include "mozilla/layers/TextureSync.h"  // for TextureSync::etc.
+#  include "mozilla/layers/TextureSync.h"  // for TextureSync::etc.
 #endif
 #include "mozilla/mozalloc.h"  // for operator delete, etc
 #include "nsAppRunner.h"
@@ -53,7 +53,7 @@
 #include "mozilla/gfx/Swizzle.h"
 
 #if MOZ_WIDGET_ANDROID
-#include "GeneratedJNIWrappers.h"
+#  include "GeneratedJNIWrappers.h"
 #endif
 
 #include "GeckoProfiler.h"
@@ -656,12 +656,14 @@ void CompositorOGL::SetRenderTarget(CompositingRenderTarget* aSurface) {
   PrepareViewport(mCurrentRenderTarget);
 }
 
-CompositingRenderTarget* CompositorOGL::GetCurrentRenderTarget() const {
-  return mCurrentRenderTarget;
+already_AddRefed<CompositingRenderTarget>
+CompositorOGL::GetCurrentRenderTarget() const {
+  return do_AddRef(mCurrentRenderTarget);
 }
 
-CompositingRenderTarget* CompositorOGL::GetWindowRenderTarget() const {
-  return mWindowRenderTarget;
+already_AddRefed<CompositingRenderTarget> CompositorOGL::GetWindowRenderTarget()
+    const {
+  return do_AddRef(mWindowRenderTarget);
 }
 
 already_AddRefed<AsyncReadbackBuffer> CompositorOGL::CreateAsyncReadbackBuffer(

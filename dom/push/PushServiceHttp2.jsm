@@ -7,11 +7,10 @@
 
 const {PushDB} = ChromeUtils.import("resource://gre/modules/PushDB.jsm");
 const {PushRecord} = ChromeUtils.import("resource://gre/modules/PushRecord.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
-ChromeUtils.import("resource://gre/modules/IndexedDBHelper.jsm");
-ChromeUtils.import("resource://gre/modules/Timer.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {clearTimeout, setTimeout} = ChromeUtils.import("resource://gre/modules/Timer.jsm");
 
 const {
   PushCrypto,
@@ -21,7 +20,7 @@ const {
 var EXPORTED_SYMBOLS = ["PushServiceHttp2"];
 
 XPCOMUtils.defineLazyGetter(this, "console", () => {
-  let {ConsoleAPI} = ChromeUtils.import("resource://gre/modules/Console.jsm", {});
+  let {ConsoleAPI} = ChromeUtils.import("resource://gre/modules/Console.jsm");
   return new ConsoleAPI({
     maxLogLevelPref: "dom.push.loglevel",
     prefix: "PushServiceHttp2",
@@ -91,7 +90,7 @@ PushSubscriptionListener.prototype = {
   onPush: function(associatedChannel, pushChannel) {
     console.debug("PushSubscriptionListener: onPush()");
     var pushChannelListener = new PushChannelListener(this);
-    pushChannel.asyncOpen2(pushChannelListener);
+    pushChannel.asyncOpen(pushChannelListener);
   },
 
   disconnect: function() {
@@ -493,7 +492,7 @@ var PushServiceHttp2 = {
 
       var chan = this._makeChannel(this._serverURI.spec);
       chan.requestMethod = "POST";
-      chan.asyncOpen2(listener);
+      chan.asyncOpen(listener);
     })
     .catch(err => {
       if ("retry" in err) {
@@ -509,7 +508,7 @@ var PushServiceHttp2 = {
     return new Promise((resolve,reject) => {
       var chan = this._makeChannel(aUri);
       chan.requestMethod = "DELETE";
-      chan.asyncOpen2(new PushServiceDelete(resolve, reject));
+      chan.asyncOpen(new PushServiceDelete(resolve, reject));
     });
   },
 
@@ -543,10 +542,10 @@ var PushServiceHttp2 = {
     chan.notificationCallbacks = listener;
 
     try {
-      chan.asyncOpen2(listener);
+      chan.asyncOpen(listener);
     } catch (e) {
       console.error("listenForMsgs: Error connecting to push server.",
-        "asyncOpen2 failed", e);
+        "asyncOpen failed", e);
       conn.listener.disconnect();
       chan.cancel(Cr.NS_ERROR_ABORT);
       this._retryAfterBackoff(aSubscriptionUri, -1);

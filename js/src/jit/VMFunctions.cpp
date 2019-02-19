@@ -189,39 +189,6 @@ bool CheckOverRecursedBaseline(JSContext* cx, BaselineFrame* frame) {
   return CheckOverRecursed(cx);
 }
 
-JSObject* BindVar(JSContext* cx, HandleObject envChain) {
-  JSObject* obj = envChain;
-  while (!obj->isQualifiedVarObj()) {
-    obj = obj->enclosingEnvironment();
-  }
-  MOZ_ASSERT(obj);
-  return obj;
-}
-
-bool DefVar(JSContext* cx, HandlePropertyName dn, unsigned attrs,
-            HandleObject envChain) {
-  // Given the ScopeChain, extract the VarObj.
-  RootedObject obj(cx, BindVar(cx, envChain));
-  return DefVarOperation(cx, obj, dn, attrs);
-}
-
-bool DefLexical(JSContext* cx, HandlePropertyName dn, unsigned attrs,
-                HandleObject envChain) {
-  // Find the extensible lexical scope.
-  Rooted<LexicalEnvironmentObject*> lexicalEnv(
-      cx, &NearestEnclosingExtensibleLexicalEnvironment(envChain));
-
-  // Find the variables object.
-  RootedObject varObj(cx, BindVar(cx, envChain));
-  return DefLexicalOperation(cx, lexicalEnv, varObj, dn, attrs);
-}
-
-bool DefGlobalLexical(JSContext* cx, HandlePropertyName dn, unsigned attrs) {
-  Rooted<LexicalEnvironmentObject*> globalLexical(
-      cx, &cx->global()->lexicalEnvironment());
-  return DefLexicalOperation(cx, globalLexical, cx->global(), dn, attrs);
-}
-
 bool MutatePrototype(JSContext* cx, HandlePlainObject obj, HandleValue value) {
   if (!value.isObjectOrNull()) {
     return true;
@@ -549,22 +516,6 @@ JSObject* NewCallObject(JSContext* cx, HandleShape shape,
   return obj;
 }
 
-JSObject* NewSingletonCallObject(JSContext* cx, HandleShape shape) {
-  JSObject* obj = CallObject::createSingleton(cx, shape);
-  if (!obj) {
-    return nullptr;
-  }
-
-  // The JIT creates call objects in the nursery, so elides barriers for
-  // the initializing writes. The interpreter, however, may have allocated
-  // the call object tenured, so barrier as needed before re-entering.
-  MOZ_ASSERT(!IsInsideNursery(obj),
-             "singletons are created in the tenured heap");
-  cx->runtime()->gc.storeBuffer().putWholeCell(obj);
-
-  return obj;
-}
-
 JSObject* NewStringObject(JSContext* cx, HandleString str) {
   return StringObject::create(cx, str);
 }
@@ -606,10 +557,11 @@ bool CreateThis(JSContext* cx, HandleObject callee, HandleObject newTarget,
       if (!script) {
         return false;
       }
-      AutoRealm ar(cx, script);
       if (!js::CreateThis(cx, fun, script, newTarget, GenericObject, rval)) {
         return false;
       }
+      MOZ_ASSERT_IF(rval.isObject(),
+                    fun->realm() == rval.toObject().nonCCWRealm());
     }
   }
 
@@ -844,8 +796,11 @@ JSObject* CreateGenerator(JSContext* cx, BaselineFrame* frame) {
 }
 
 bool NormalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame,
-                   jsbytecode* pc, uint32_t stackDepth) {
+                   jsbytecode* pc) {
   MOZ_ASSERT(*pc == JSOP_YIELD || *pc == JSOP_AWAIT);
+
+  MOZ_ASSERT(frame->numValueSlots() > frame->script()->nfixed());
+  uint32_t stackDepth = frame->numValueSlots() - frame->script()->nfixed();
 
   // Return value is still on the stack.
   MOZ_ASSERT(stackDepth >= 1);
@@ -932,38 +887,6 @@ bool GeneratorThrowOrReturn(JSContext* cx, BaselineFrame* frame,
   MOZ_ALWAYS_FALSE(
       js::GeneratorThrowOrReturn(cx, frame, genObj, arg, resumeKind));
   return false;
-}
-
-bool CheckGlobalOrEvalDeclarationConflicts(JSContext* cx,
-                                           BaselineFrame* frame) {
-  RootedScript script(cx, frame->script());
-  RootedObject envChain(cx, frame->environmentChain());
-  RootedObject varObj(cx, BindVar(cx, envChain));
-
-  if (script->isForEval()) {
-    // Strict eval and eval in parameter default expressions have their
-    // own call objects.
-    //
-    // Non-strict eval may introduce 'var' bindings that conflict with
-    // lexical bindings in an enclosing lexical scope.
-    if (!script->bodyScope()->hasEnvironment()) {
-      MOZ_ASSERT(
-          !script->strict() &&
-          (!script->enclosingScope()->is<FunctionScope>() ||
-           !script->enclosingScope()->as<FunctionScope>().hasParameterExprs()));
-      if (!CheckEvalDeclarationConflicts(cx, script, envChain, varObj)) {
-        return false;
-      }
-    }
-  } else {
-    Rooted<LexicalEnvironmentObject*> lexicalEnv(
-        cx, &NearestEnclosingExtensibleLexicalEnvironment(envChain));
-    if (!CheckGlobalDeclarationConflicts(cx, script, lexicalEnv, varObj)) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 bool GlobalNameConflictsCheckFromIon(JSContext* cx, HandleScript script) {
@@ -1341,6 +1264,15 @@ void AssertValidSymbolPtr(JSContext* cx, JS::Symbol* sym) {
   MOZ_ASSERT(sym->getAllocKind() == gc::AllocKind::SYMBOL);
 }
 
+void AssertValidBigIntPtr(JSContext* cx, JS::BigInt* bi) {
+  AutoUnsafeCallWithABI unsafe;
+  // FIXME: check runtime?
+  MOZ_ASSERT(cx->zone() == bi->zone());
+  MOZ_ASSERT(bi->isAligned());
+  MOZ_ASSERT(bi->isTenured());
+  MOZ_ASSERT(bi->getAllocKind() == gc::AllocKind::BIGINT);
+}
+
 void AssertValidValue(JSContext* cx, Value* v) {
   AutoUnsafeCallWithABI unsafe;
   if (v->isObject()) {
@@ -1349,6 +1281,8 @@ void AssertValidValue(JSContext* cx, Value* v) {
     AssertValidStringPtr(cx, v->toString());
   } else if (v->isSymbol()) {
     AssertValidSymbolPtr(cx, v->toSymbol());
+  } else if (v->isBigInt()) {
+    AssertValidBigIntPtr(cx, v->toBigInt());
   }
 }
 
@@ -1791,8 +1725,6 @@ bool GetPrototypeOf(JSContext* cx, HandleObject target,
   return true;
 }
 
-void CloseIteratorFromIon(JSContext* cx, JSObject* obj) { CloseIterator(obj); }
-
 typedef bool (*SetObjectElementFn)(JSContext*, HandleObject, HandleValue,
                                    HandleValue, HandleValue, bool);
 const VMFunction SetObjectElementInfo =
@@ -1875,6 +1807,17 @@ MOZ_MUST_USE bool TrySkipAwait(JSContext* cx, HandleValue val,
   return true;
 }
 
+bool IsPossiblyWrappedTypedArray(JSContext* cx, JSObject* obj, bool* result) {
+  JSObject* unwrapped = CheckedUnwrapDynamic(obj, cx);
+  if (!unwrapped) {
+    ReportAccessDenied(cx);
+    return false;
+  }
+
+  *result = unwrapped->is<TypedArrayObject>();
+  return true;
+}
+
 typedef bool (*ProxyGetPropertyFn)(JSContext*, HandleObject, HandleId,
                                    MutableHandleValue);
 const VMFunction ProxyGetPropertyInfo =
@@ -1925,6 +1868,23 @@ typedef bool (*GetSparseElementHelperFn)(JSContext* cx, HandleArrayObject obj,
 const VMFunction GetSparseElementHelperInfo =
     FunctionInfo<GetSparseElementHelperFn>(GetSparseElementHelper,
                                            "getSparseElementHelper");
+
+static bool DoToNumber(JSContext* cx, HandleValue arg, MutableHandleValue ret) {
+  ret.set(arg);
+  return ToNumber(cx, ret);
+}
+
+static bool DoToNumeric(JSContext* cx, HandleValue arg,
+                        MutableHandleValue ret) {
+  ret.set(arg);
+  return ToNumeric(cx, ret);
+}
+
+typedef bool (*ToNumericFn)(JSContext*, HandleValue, MutableHandleValue);
+const VMFunction ToNumberInfo =
+    FunctionInfo<ToNumericFn>(DoToNumber, "ToNumber");
+const VMFunction ToNumericInfo =
+    FunctionInfo<ToNumericFn>(DoToNumeric, "ToNumeric");
 
 }  // namespace jit
 }  // namespace js

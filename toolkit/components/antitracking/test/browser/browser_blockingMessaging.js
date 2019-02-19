@@ -40,11 +40,15 @@ AntiTracking.runTest("BroadcastChannel in workers",
 
     await new Promise((resolve, reject) => {
       worker.onmessage = function(e) {
-        if (e) {
+        if (e.data) {
           resolve();
         } else {
           reject();
         }
+      };
+
+      worker.onerror = function(e) {
+        reject();
       };
     });
   },
@@ -65,11 +69,15 @@ AntiTracking.runTest("BroadcastChannel in workers",
 
     await new Promise((resolve, reject) => {
       worker.onmessage = function(e) {
-        if (e) {
+        if (e.data) {
           resolve();
         } else {
           reject();
         }
+      };
+
+      worker.onerror = function(e) {
+        reject();
       };
     });
   },
@@ -95,8 +103,18 @@ AntiTracking.runTest("BroadcastChannel and Storage Access API",
     /* import-globals-from storageAccessAPIHelpers.js */
     await callRequestStorageAccess();
 
-    new BroadcastChannel("hello");
-    ok(true, "BroadcastChannel can be used");
+    if (SpecialPowers.Services.prefs.getIntPref("network.cookie.cookieBehavior") == SpecialPowers.Ci.nsICookieService.BEHAVIOR_REJECT) {
+      try {
+        new BroadcastChannel("hello");
+        ok(false, "BroadcastChannel cannot be used!");
+      } catch (e) {
+        ok(true, "BroadcastChannel cannot be used!");
+        is(e.name, "SecurityError", "We want a security error message.");
+      }
+    } else {
+      new BroadcastChannel("hello");
+      ok(true, "BroadcastChannel can be used");
+    }
   },
   async _ => {
     /* import-globals-from storageAccessAPIHelpers.js */
@@ -147,18 +165,27 @@ AntiTracking.runTest("BroadcastChannel in workers and Storage Access API",
 
     await new Promise((resolve, reject) => {
       worker.onmessage = function(e) {
-        if (e) {
+        if (e.data) {
           resolve();
         } else {
           reject();
         }
+      };
+
+      worker.onerror = function(e) {
+        reject();
       };
     });
 
     /* import-globals-from storageAccessAPIHelpers.js */
     await callRequestStorageAccess();
 
-    blob = new Blob([nonBlockingCode.toString() + "; nonBlockingCode();"]);
+    if (SpecialPowers.Services.prefs.getIntPref("network.cookie.cookieBehavior") == SpecialPowers.Ci.nsICookieService.BEHAVIOR_REJECT) {
+      blob = new Blob([blockingCode.toString() + "; blockingCode();"]);
+    } else {
+      blob = new Blob([nonBlockingCode.toString() + "; nonBlockingCode();"]);
+    }
+
     ok(blob, "Blob has been created");
 
     blobURL = URL.createObjectURL(blob);
@@ -169,11 +196,15 @@ AntiTracking.runTest("BroadcastChannel in workers and Storage Access API",
 
     await new Promise((resolve, reject) => {
       worker.onmessage = function(e) {
-        if (e) {
+        if (e.data) {
           resolve();
         } else {
           reject();
         }
+      };
+
+      worker.onerror = function(e) {
+        reject();
       };
     });
   },
@@ -197,11 +228,15 @@ AntiTracking.runTest("BroadcastChannel in workers and Storage Access API",
 
     await new Promise((resolve, reject) => {
       worker.onmessage = function(e) {
-        if (e) {
+        if (e.data) {
           resolve();
         } else {
           reject();
         }
+      };
+
+      worker.onerror = function(e) {
+        reject();
       };
     });
 
@@ -215,11 +250,15 @@ AntiTracking.runTest("BroadcastChannel in workers and Storage Access API",
 
     await new Promise((resolve, reject) => {
       worker.onmessage = function(e) {
-        if (e) {
+        if (e.data) {
           resolve();
         } else {
           reject();
         }
+      };
+
+      worker.onerror = function(e) {
+        reject();
       };
     });
   },

@@ -22,14 +22,16 @@ using namespace mozilla;
 
 nsContainerFrame* NS_NewHTMLButtonControlFrame(nsIPresShell* aPresShell,
                                                ComputedStyle* aStyle) {
-  return new (aPresShell) nsHTMLButtonControlFrame(aStyle);
+  return new (aPresShell)
+      nsHTMLButtonControlFrame(aStyle, aPresShell->GetPresContext());
 }
 
 NS_IMPL_FRAMEARENA_HELPERS(nsHTMLButtonControlFrame)
 
 nsHTMLButtonControlFrame::nsHTMLButtonControlFrame(ComputedStyle* aStyle,
+                                                   nsPresContext* aPresContext,
                                                    nsIFrame::ClassID aID)
-    : nsContainerFrame(aStyle, aID) {}
+    : nsContainerFrame(aStyle, aPresContext, aID) {}
 
 nsHTMLButtonControlFrame::~nsHTMLButtonControlFrame() {}
 
@@ -96,19 +98,22 @@ void nsHTMLButtonControlFrame::BuildDisplayList(
 
   nsDisplayListCollection set(aBuilder);
 
-  DisplayListClipState::AutoSaveRestore clipState(aBuilder);
+  {
+    DisplayListClipState::AutoSaveRestore clipState(aBuilder);
 
-  if (ShouldClipPaintingToBorderBox()) {
-    nsMargin border = StyleBorder()->GetComputedBorder();
-    nsRect rect(aBuilder->ToReferenceFrame(this), GetSize());
-    rect.Deflate(border);
-    nscoord radii[8];
-    bool hasRadii = GetPaddingBoxBorderRadii(radii);
-    clipState.ClipContainingBlockDescendants(rect, hasRadii ? radii : nullptr);
+    if (ShouldClipPaintingToBorderBox()) {
+      nsMargin border = StyleBorder()->GetComputedBorder();
+      nsRect rect(aBuilder->ToReferenceFrame(this), GetSize());
+      rect.Deflate(border);
+      nscoord radii[8];
+      bool hasRadii = GetPaddingBoxBorderRadii(radii);
+      clipState.ClipContainingBlockDescendants(rect,
+                                               hasRadii ? radii : nullptr);
+    }
+
+    BuildDisplayListForChild(aBuilder, mFrames.FirstChild(), set,
+                             DISPLAY_CHILD_FORCE_PSEUDO_STACKING_CONTEXT);
   }
-
-  BuildDisplayListForChild(aBuilder, mFrames.FirstChild(), set,
-                           DISPLAY_CHILD_FORCE_PSEUDO_STACKING_CONTEXT);
 
   // Put the foreground outline and focus rects on top of the children
   set.Content()->AppendToTop(&onTop);
@@ -165,8 +170,9 @@ void nsHTMLButtonControlFrame::Reflow(nsPresContext* aPresContext,
   MOZ_ASSERT(firstKid, "Button should have a child frame for its contents");
   MOZ_ASSERT(!firstKid->GetNextSibling(),
              "Button should have exactly one child frame");
-  MOZ_ASSERT(firstKid->Style()->GetPseudo() == nsCSSAnonBoxes::buttonContent(),
-             "Button's child frame has unexpected pseudo type!");
+  MOZ_ASSERT(
+      firstKid->Style()->GetPseudoType() == PseudoStyleType::buttonContent,
+      "Button's child frame has unexpected pseudo type!");
 
   // XXXbz Eventually we may want to check-and-bail if
   // !aReflowInput.ShouldReflowAllKids() &&

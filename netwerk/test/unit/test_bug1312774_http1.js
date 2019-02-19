@@ -13,8 +13,8 @@
 // Note: if the urgent request handling is broken (the urgent-marked requests
 // get blocked by queuing) this test will time out
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 var server = new HttpServer();
 server.start(-1);
 var baseURL = "http://localhost:" + server.identity.primaryPort + "/";
@@ -50,7 +50,7 @@ function commonHttpRequest(id) {
   var listner = new HttpResponseListener(id);
   chan.setRequestHeader("X-ID", id, false);
   chan.setRequestHeader("Cache-control", "no-store", false);
-  chan.asyncOpen2(listner);
+  chan.asyncOpen(listner);
   log("Create common http request id=" + id);
 }
 
@@ -62,7 +62,7 @@ function urgentStartHttpRequest(id) {
   cos.addClassFlags(Ci.nsIClassOfService.UrgentStart);
   chan.setRequestHeader("X-ID", id, false);
   chan.setRequestHeader("Cache-control", "no-store", false);
-  chan.asyncOpen2(listner);
+  chan.asyncOpen(listner);
   log("Create urgent-start http request id=" + id);
 }
 

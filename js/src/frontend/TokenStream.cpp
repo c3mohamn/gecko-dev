@@ -598,11 +598,11 @@ void TokenStreamAnyChars::reportErrorNoOffsetVA(unsigned errorNumber,
 
 // Use the fastest available getc.
 #if defined(HAVE_GETC_UNLOCKED)
-#define fast_getc getc_unlocked
+#  define fast_getc getc_unlocked
 #elif defined(HAVE__GETC_NOLOCK)
-#define fast_getc _getc_nolock
+#  define fast_getc _getc_nolock
 #else
-#define fast_getc getc
+#  define fast_getc getc
 #endif
 
 MOZ_MUST_USE MOZ_ALWAYS_INLINE bool
@@ -2142,12 +2142,9 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::decimalNumber(
 
   // Numbers contain no escapes, so we can read directly from |sourceUnits|.
   double dval;
-#ifdef ENABLE_BIGINT
   bool isBigInt = false;
-#endif
   DecimalPoint decimalPoint = NoDecimal;
-  if (unit != '.' && unit != 'e' && unit != 'E' &&
-      IF_BIGINT(unit != 'n', true)) {
+  if (unit != '.' && unit != 'e' && unit != 'E' && unit != 'n') {
     // NOTE: |unit| may be EOF here.
     ungetCodeUnit(unit);
 
@@ -2157,14 +2154,10 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::decimalNumber(
                            this->sourceUnits.addressOfNextCodeUnit(), &dval)) {
       return false;
     }
-  }
-#ifdef ENABLE_BIGINT
-  else if (unit == 'n') {
+  } else if (unit == 'n' && anyCharsAccess().options().bigIntEnabledOption) {
     isBigInt = true;
     unit = peekCodeUnit();
-  }
-#endif
-  else {
+  } else {
     // Consume any decimal dot and fractional component.
     if (unit == '.') {
       decimalPoint = HasDecimal;
@@ -2226,11 +2219,9 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::decimalNumber(
 
   noteBadToken.release();
 
-#ifdef ENABLE_BIGINT
   if (isBigInt) {
     return bigIntLiteral(start, modifier, out);
   }
-#endif
 
   newNumberToken(dval, decimalPoint, start, modifier, out);
   return true;
@@ -2361,10 +2352,10 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::regexpLiteral(
   return true;
 }
 
-#ifdef ENABLE_BIGINT
 template <typename Unit, class AnyCharsAccess>
 MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::bigIntLiteral(
     TokenStart start, Modifier modifier, TokenKind* out) {
+  MOZ_ASSERT(anyCharsAccess().options().bigIntEnabledOption);
   MOZ_ASSERT(this->sourceUnits.previousCodeUnit() == toUnit('n'));
   MOZ_ASSERT(this->sourceUnits.offset() > start.offset());
   uint32_t length = this->sourceUnits.offset() - start.offset();
@@ -2385,7 +2376,6 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::bigIntLiteral(
   newBigIntToken(start, modifier, out);
   return true;
 }
-#endif
 
 template <typename Unit, class AnyCharsAccess>
 MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::getTokenInternal(
@@ -2551,10 +2541,8 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::getTokenInternal(
     if (c1kind == ZeroDigit) {
       TokenStart start(this->sourceUnits, -1);
       int radix;
-#ifdef ENABLE_BIGINT
       bool isLegacyOctalOrNoctal = false;
       bool isBigInt = false;
-#endif
       const Unit* numStart;
       unit = getCodeUnit();
       if (unit == 'x' || unit == 'X') {
@@ -2607,9 +2595,7 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::getTokenInternal(
         }
       } else if (IsAsciiDigit(unit)) {
         radix = 8;
-#ifdef ENABLE_BIGINT
         isLegacyOctalOrNoctal = true;
-#endif
         // one past the '0'
         numStart = this->sourceUnits.addressOfNextCodeUnit() - 1;
 
@@ -2644,8 +2630,7 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::getTokenInternal(
         return decimalNumber(unit, start, numStart, modifier, ttp);
       }
 
-#ifdef ENABLE_BIGINT
-      if (unit == 'n') {
+      if (unit == 'n' && anyCharsAccess().options().bigIntEnabledOption) {
         if (isLegacyOctalOrNoctal) {
           error(JSMSG_BIGINT_INVALID_SYNTAX);
           return badToken();
@@ -2655,9 +2640,6 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::getTokenInternal(
       } else {
         ungetCodeUnit(unit);
       }
-#else
-      ungetCodeUnit(unit);
-#endif
 
       // Error if an identifier-start code point appears immediately
       // after the number.  Somewhat surprisingly, if we don't check
@@ -2678,11 +2660,9 @@ MOZ_MUST_USE bool TokenStreamSpecific<Unit, AnyCharsAccess>::getTokenInternal(
         }
       }
 
-#ifdef ENABLE_BIGINT
       if (isBigInt) {
         return bigIntLiteral(start, modifier, ttp);
       }
-#endif
 
       double dval;
       if (!GetFullInteger(anyCharsAccess().cx, numStart,
@@ -3361,11 +3341,11 @@ const char* TokenKindToDesc(TokenKind tt) {
 #ifdef DEBUG
 const char* TokenKindToString(TokenKind tt) {
   switch (tt) {
-#define EMIT_CASE(name, desc) \
-  case TokenKind::name:       \
-    return "TokenKind::" #name;
+#  define EMIT_CASE(name, desc) \
+    case TokenKind::name:       \
+      return "TokenKind::" #name;
     FOR_EACH_TOKEN_KIND(EMIT_CASE)
-#undef EMIT_CASE
+#  undef EMIT_CASE
     case TokenKind::Limit:
       break;
   }

@@ -7,16 +7,21 @@ package org.mozilla.geckoview;
 
 import org.mozilla.gecko.annotation.WrapForJNI;
 import org.mozilla.gecko.mozglue.JNIObject;
+import org.mozilla.gecko.util.GeckoBundle;
 import org.mozilla.gecko.util.ThreadUtils;
 
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.support.annotation.UiThread;
+import android.support.annotation.IntDef;
 import android.util.Log;
 import android.util.Pair;
 import android.view.MotionEvent;
 import android.view.InputDevice;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 import java.util.ArrayList;
 
@@ -33,13 +38,26 @@ public class PanZoomController extends JNIObject {
     private float mPointerScrollFactor = 64.0f;
     private long mLastDownTime;
 
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({SCROLL_BEHAVIOR_SMOOTH, SCROLL_BEHAVIOR_AUTO})
+    /* package */ @interface ScrollBehaviorType {}
+
+    /**
+     * Specifies smooth scrolling which animates content to the desired scroll position.
+     */
+    public static final int SCROLL_BEHAVIOR_SMOOTH = 0;
+    /**
+     * Specifies auto scrolling which jumps content to the desired scroll position.
+     */
+    public static final int SCROLL_BEHAVIOR_AUTO = 1;
+
     private SynthesizedEventState mPointerState;
 
     private ArrayList<Pair<Integer, MotionEvent>> mQueuedEvents;
 
     @WrapForJNI(calledFrom = "ui")
     private native boolean handleMotionEvent(
-            int action, int actionIndex, long time, int metaState,
+            int action, int actionIndex, long time, int metaState,  float screenX, float screenY,
             int pointerId[], float x[], float y[], float orientation[], float pressure[],
             float toolMajor[], float toolMinor[]);
 
@@ -94,8 +112,15 @@ public class PanZoomController extends JNIObject {
             toolMinor[i] = coords.toolMinor;
         }
 
+        final float screenX = event.getRawX() - event.getX();
+        final float screenY = event.getRawY() - event.getY();
+
+        // Take this opportunity to update screen origin of session. This gets
+        // dispatched to the gecko thread, so we also pass the new screen x/y directly to apz.
+        mSession.onScreenOriginChanged((int)screenX, (int)screenY);
+
         return handleMotionEvent(action, event.getActionIndex(), event.getEventTime(),
-                event.getMetaState(), pointerId, x, y, orientation, pressure,
+                event.getMetaState(), screenX, screenY, pointerId, x, y, orientation, pressure,
                 toolMajor, toolMinor);
     }
 
@@ -522,5 +547,85 @@ public class PanZoomController extends JNIObject {
         synthesizeNativePointer(InputDevice.SOURCE_MOUSE,
                                 PointerInfo.RESERVED_MOUSE_POINTER_ID,
                                 eventType, clientX, clientY, 0, 0);
+    }
+
+    /**
+     * Scroll the document body by an offset from the current scroll position.
+     * Uses {@link #SCROLL_BEHAVIOR_SMOOTH}.
+     *
+     * @param width {@link ScreenLength} offset to scroll along X axis.
+     * @param height {@link ScreenLength} offset to scroll along Y axis.
+     */
+    @UiThread
+    public void scrollBy(@NonNull ScreenLength width, @NonNull ScreenLength height) {
+        scrollBy(width, height, SCROLL_BEHAVIOR_SMOOTH);
+    }
+
+    /**
+     * Scroll the document body by an offset from the current scroll position.
+     *
+     * @param width {@link ScreenLength} offset to scroll along X axis.
+     * @param height {@link ScreenLength} offset to scroll along Y axis.
+     * @param behavior ScrollBehaviorType One of {@link #SCROLL_BEHAVIOR_SMOOTH}, {@link #SCROLL_BEHAVIOR_AUTO},
+     *                 that specifies how to scroll the content.
+     */
+    @UiThread
+    public void scrollBy(@NonNull ScreenLength width, @NonNull ScreenLength height, @ScrollBehaviorType int behavior) {
+        final GeckoBundle msg = buildScrollMessage(width, height, behavior);
+        mSession.getEventDispatcher().dispatch("GeckoView:ScrollBy", msg);
+    }
+
+    /**
+     * Scroll the document body to an absolute  position.
+     * Uses {@link #SCROLL_BEHAVIOR_SMOOTH}.
+     *
+     * @param width {@link ScreenLength} position to scroll along X axis.
+     * @param height {@link ScreenLength} position to scroll along Y axis.
+     */
+    @UiThread
+    public void scrollTo(@NonNull ScreenLength width, @NonNull ScreenLength height) {
+        scrollTo(width, height, SCROLL_BEHAVIOR_SMOOTH);
+    }
+
+    /**
+     * Scroll the document body to an absolute position.
+     *
+     * @param width {@link ScreenLength} position to scroll along X axis.
+     * @param height {@link ScreenLength} position to scroll along Y axis.
+     * @param behavior ScrollBehaviorType One of {@link #SCROLL_BEHAVIOR_SMOOTH}, {@link #SCROLL_BEHAVIOR_AUTO},
+     *                 that specifies how to scroll the content.
+     */
+    @UiThread
+    public void scrollTo(@NonNull ScreenLength width, @NonNull ScreenLength height, @ScrollBehaviorType int behavior) {
+        final GeckoBundle msg = buildScrollMessage(width, height, behavior);
+        mSession.getEventDispatcher().dispatch("GeckoView:ScrollTo", msg);
+    }
+
+    /**
+     * Scroll to the top left corner of the screen.
+     * Uses {@link #SCROLL_BEHAVIOR_SMOOTH}.
+     */
+    @UiThread
+    public void scrollToTop() {
+        scrollTo(ScreenLength.zero(), ScreenLength.top(), SCROLL_BEHAVIOR_SMOOTH);
+    }
+
+    /**
+     * Scroll to the bottom left corner of the screen.
+     * Uses {@link #SCROLL_BEHAVIOR_SMOOTH}.
+     */
+    @UiThread
+    public void scrollToBottom() {
+        scrollTo(ScreenLength.zero(), ScreenLength.bottom(), SCROLL_BEHAVIOR_SMOOTH);
+    }
+
+    private GeckoBundle buildScrollMessage(@NonNull ScreenLength width, @NonNull ScreenLength height, @ScrollBehaviorType int behavior) {
+        final GeckoBundle msg = new GeckoBundle();
+        msg.putDouble("widthValue", width.getValue());
+        msg.putInt("widthType", width.getType());
+        msg.putDouble("heightValue", height.getValue());
+        msg.putInt("heightType", height.getType());
+        msg.putInt("behavior", behavior);
+        return msg;
     }
 }

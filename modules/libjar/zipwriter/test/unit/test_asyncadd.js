@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 // Values taken from using zipinfo to list the test.zip contents
 var TESTS = [
@@ -82,7 +82,7 @@ var methods = {
                         NetUtil.newChannel({
                           uri: ioSvc.newFileURI(source),
                           loadUsingSystemPrincipal: true
-                        }).open2(), true);
+                        }).open(), true);
   }
 }
 

@@ -58,11 +58,6 @@ pref("extensions.autoDisableScopes", 15);
 pref("extensions.startupScanScopes", 0);
 
 pref("extensions.geckoProfiler.acceptedExtensionIds", "geckoprofiler@mozilla.com,quantum-foxfooding@mozilla.com,raptor@mozilla.org");
-#if defined(XP_LINUX) || defined (XP_MACOSX)
-pref("extensions.geckoProfiler.getSymbolRules", "localBreakpad,nm");
-#else // defined(XP_WIN)
-pref("extensions.geckoProfiler.getSymbolRules", "localBreakpad,dump_syms.exe");
-#endif
 
 
 // Add-on content security policies.
@@ -150,7 +145,7 @@ pref("app.update.silent", false);
 
 // If set to true, the Update Service will apply updates in the background
 // when it finishes downloading them.
-#if defined(XP_WIN)
+#if defined(XP_WIN) || defined(XP_MACOSX)
 pref("app.update.staging.enabled", true);
 #elif defined(EARLY_BETA_OR_EARLIER)
 pref("app.update.staging.enabled", true);
@@ -459,9 +454,9 @@ pref("browser.tabs.loadBookmarksInBackground", false);
 pref("browser.tabs.loadBookmarksInTabs", false);
 pref("browser.tabs.tabClipWidth", 140);
 pref("browser.tabs.tabMinWidth", 76);
-#ifdef UNIX_BUT_NOT_MAC
-pref("browser.tabs.drawInTitlebar", false);
-#else
+// Initial titlebar state is managed by -moz-gtk-csd-hide-titlebar-by-default
+// on Linux.
+#ifndef UNIX_BUT_NOT_MAC
 pref("browser.tabs.drawInTitlebar", true);
 #endif
 
@@ -479,6 +474,9 @@ pref("browser.tabs.selectOwnerOnClose", true);
 pref("browser.tabs.showAudioPlayingIcon", true);
 // This should match Chromium's audio indicator delay.
 pref("browser.tabs.delayHidingAudioPlayingIconMS", 3000);
+
+// New, experimental, tab open/close animations.
+pref("browser.tabs.newanimations", false);
 
 // Pref to control whether we use separate privileged content processes.
 #if defined(NIGHTLY_BUILD) && !defined(MOZ_ASAN)
@@ -504,9 +502,6 @@ pref("browser.bookmarks.openInTabClosesMenu", true);
 // Scripts & Windows prefs
 pref("dom.disable_open_during_load",              true);
 pref("javascript.options.showInConsole",          true);
-#ifdef DEBUG
-pref("general.warnOnAboutConfig",                 false);
-#endif
 
 // This is the pref to control the location bar, change this to true to
 // force this - this makes the origin of popup windows more obvious to avoid
@@ -823,7 +818,7 @@ pref("browser.sessionstore.idleDelay", 180000); // 3 minutes
 // 0 = everywhere, 1 = unencrypted sites, 2 = nowhere
 pref("browser.sessionstore.privacy_level", 0);
 // how many tabs can be reopened (per window)
-pref("browser.sessionstore.max_tabs_undo", 10);
+pref("browser.sessionstore.max_tabs_undo", 25);
 // how many windows can be reopened (per session) - on non-OS X platforms this
 // pref may be ignored when dealing with pop-up windows to ensure proper startup
 pref("browser.sessionstore.max_windows_undo", 3);
@@ -858,8 +853,6 @@ pref("browser.sessionstore.debug", false);
 pref("browser.sessionstore.debug.no_auto_updates", false);
 // Forget closed windows/tabs after two weeks
 pref("browser.sessionstore.cleanup.forget_closed_after", 1209600000);
-// Maximum number of bytes of DOMSessionStorage data we collect per origin.
-pref("browser.sessionstore.dom_storage_limit", 2048);
 // Amount of failed SessionFile writes until we restart the worker.
 pref("browser.sessionstore.max_write_failures", 5);
 
@@ -962,16 +955,19 @@ pref("security.alternate_certificate_error_page", "certerror");
 // Enable the new certificate error pages.
 #ifdef EARLY_BETA_OR_EARLIER
 pref("browser.security.newcerterrorpage.enabled", true);
-pref("browser.security.newcerterrorpage.mitm.enabled", true);
 #else
 pref("browser.security.newcerterrorpage.enabled", false);
-pref("browser.security.newcerterrorpage.mitm.enabled", false);
 #endif
 
+pref("browser.security.newcerterrorpage.mitm.enabled", true);
 pref("security.certerrors.recordEventTelemetry", true);
+pref("security.certerrors.permanentOverride", true);
 
 // Whether to start the private browsing mode at application startup
 pref("browser.privatebrowsing.autostart", false);
+
+// Whether to show the new private browsing UI with in-content search box.
+pref("browser.privatebrowsing.searchUI", true);
 
 // Whether the bookmark panel should be shown when bookmarking a page.
 pref("browser.bookmarks.editDialog.showForNewBookmarks", true);
@@ -1036,10 +1032,11 @@ pref("security.sandbox.windows.log.stackTraceDepth", 0);
 // security/sandbox/win/src/sandboxbroker/sandboxBroker.cpp
 pref("security.sandbox.gpu.level", 0);
 
-// Controls whether we disable win32k for the GMP processes.
+// Controls whether we disable win32k for the processes.
 // true means that win32k system calls are not permitted.
-// Note: win32k is currently _not_ disabled due to intermittent test failures,
-// where the GMP process fails very early. See bug 1449348.
+pref("security.sandbox.rdd.win32k-disable", true);
+// Note: win32k is currently _not_ disabled for GMP due to intermittent test
+// failures, where the GMP process fails very early. See bug 1449348.
 pref("security.sandbox.gmp.win32k-disable", false);
 #endif
 
@@ -1170,10 +1167,23 @@ pref("services.sync.prefs.sync.addons.ignoreUserEnabledChanges", true);
 // uncompromised Sync-connected devices.
 pref("services.sync.prefs.sync.browser.contentblocking.category", true);
 pref("services.sync.prefs.sync.browser.contentblocking.introCount", true);
+pref("services.sync.prefs.sync.browser.crashReports.unsubmittedCheck.autoSubmit2", true);
 pref("services.sync.prefs.sync.browser.ctrlTab.recentlyUsedOrder", true);
 pref("services.sync.prefs.sync.browser.download.useDownloadDir", true);
 pref("services.sync.prefs.sync.browser.formfill.enable", true);
 pref("services.sync.prefs.sync.browser.link.open_newwindow", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.showSearch", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.feeds.topsites", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.topSitesRows", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.feeds.snippets", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.feeds.section.topstories", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.topstories.rows", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.feeds.section.highlights", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.highlights.includeVisited", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.highlights.includeBookmarks", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.highlights.includeDownloads", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.highlights.includePocket", true);
+pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.highlights.rows", true);
 pref("services.sync.prefs.sync.browser.newtabpage.enabled", true);
 pref("services.sync.prefs.sync.browser.newtabpage.pinned", true);
 pref("services.sync.prefs.sync.browser.offline-apps.notify", true);
@@ -1188,6 +1198,7 @@ pref("services.sync.prefs.sync.browser.startup.page", true);
 pref("services.sync.prefs.sync.browser.tabs.loadInBackground", true);
 pref("services.sync.prefs.sync.browser.tabs.warnOnClose", true);
 pref("services.sync.prefs.sync.browser.tabs.warnOnOpen", true);
+pref("services.sync.prefs.sync.browser.taskbar.previews.enable", true);
 pref("services.sync.prefs.sync.browser.urlbar.matchBuckets", true);
 pref("services.sync.prefs.sync.browser.urlbar.maxRichResults", true);
 pref("services.sync.prefs.sync.browser.urlbar.suggest.bookmark", true);
@@ -1204,6 +1215,8 @@ pref("services.sync.prefs.sync.intl.accept_languages", true);
 pref("services.sync.prefs.sync.layout.spellcheckDefault", true);
 pref("services.sync.prefs.sync.lightweightThemes.selectedThemeID", true);
 pref("services.sync.prefs.sync.lightweightThemes.usedThemes", true);
+pref("services.sync.prefs.sync.media.autoplay.default", true);
+pref("services.sync.prefs.sync.media.eme.enabled", true);
 pref("services.sync.prefs.sync.network.cookie.cookieBehavior", true);
 pref("services.sync.prefs.sync.network.cookie.lifetimePolicy", true);
 pref("services.sync.prefs.sync.network.cookie.thirdparty.sessionOnly", true);
@@ -1283,14 +1296,14 @@ pref("browser.newtabpage.activity-stream.improvesearch.topSiteSearchShortcuts", 
 
 // ASRouter provider configuration
 pref("browser.newtabpage.activity-stream.asrouter.providers.cfr", "{\"id\":\"cfr\",\"enabled\":true,\"type\":\"local\",\"localProvider\":\"CFRMessageProvider\",\"frequency\":{\"custom\":[{\"period\":\"daily\",\"cap\":1}]}}");
-
-#ifdef EARLY_BETA_OR_EARLIER
 pref("browser.newtabpage.activity-stream.asrouter.providers.snippets", "{\"id\":\"snippets\",\"enabled\":true,\"type\":\"remote\",\"url\":\"https://snippets.cdn.mozilla.net/%STARTPAGE_VERSION%/%NAME%/%VERSION%/%APPBUILDID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/\",\"updateCycleInMs\":14400000}");
+
+// The pref controls if search hand-off is enabled for Activity Stream.
+#ifdef NIGHTLY_BUILD
+pref("browser.newtabpage.activity-stream.improvesearch.handoffToAwesomebar", true);
 #else
-pref("browser.newtabpage.activity-stream.asrouter.providers.snippets", "{\"id\":\"snippets\",\"enabled\":false,\"type\":\"remote\",\"url\":\"https://snippets.cdn.mozilla.net/%STARTPAGE_VERSION%/%NAME%/%VERSION%/%APPBUILDID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/\",\"updateCycleInMs\":14400000}");
+pref("browser.newtabpage.activity-stream.improvesearch.handoffToAwesomebar", false);
 #endif
-
-
 
 // Enable the DOM fullscreen API.
 pref("full-screen-api.enabled", true);
@@ -1458,19 +1471,22 @@ pref("media.gmp-widevinecdm.visible", true);
 pref("media.gmp-widevinecdm.enabled", true);
 #endif
 
-#ifdef NIGHTLY_BUILD
+
 // Switch block autoplay logic to v2, and enable UI.
 pref("media.autoplay.enabled.user-gestures-needed", true);
 // Set Firefox to block autoplay, asking for permission by default.
 pref("media.autoplay.default", 1); // 0=Allowed, 1=Blocked
+
+#ifdef NIGHTLY_BUILD
 // Block WebAudio from playing automatically.
 pref("media.autoplay.block-webaudio", true);
 #else
-pref("media.autoplay.default", 0); // 0=Allowed, 1=Blocked
-pref("media.autoplay.enabled.user-gestures-needed", false);
 pref("media.autoplay.block-webaudio", false);
 #endif
 
+#ifdef NIGHTLY_BUILD
+pref("media.videocontrols.picture-in-picture.enabled", false);
+#endif
 
 // Play with different values of the decay time and get telemetry,
 // 0 means to randomize (and persist) the experiment value in users' profiles,
@@ -1531,6 +1547,9 @@ pref("browser.contentblocking.rejecttrackers.control-center.ui.enabled", true);
 pref("browser.contentblocking.control-center.ui.showBlockedLabels", true);
 pref("browser.contentblocking.control-center.ui.showAllowedLabels", false);
 
+pref("browser.contentblocking.cryptomining.preferences.ui.enabled", true);
+pref("browser.contentblocking.fingerprinting.preferences.ui.enabled", true);
+
 // Enable the Report Breakage UI on Nightly and Beta but not on Release yet.
 #ifdef EARLY_BETA_OR_EARLIER
 pref("browser.contentblocking.reportBreakage.enabled", true);
@@ -1544,7 +1563,7 @@ pref("browser.contentblocking.reportBreakage.url", "https://tracking-protection-
 
 pref("browser.contentblocking.introCount", 0);
 
-pref("privacy.trackingprotection.introURL", "https://www.mozilla.org/%LOCALE%/firefox/%VERSION%/tracking-protection/start/");
+pref("privacy.trackingprotection.introURL", "https://www.mozilla.org/%LOCALE%/firefox/%VERSION%/content-blocking/start/");
 
 // Workaround for Google Recaptcha
 pref("urlclassifier.trackingAnnotationSkipURLs", "google.com/recaptcha/,*.google.com/recaptcha/");
@@ -1602,6 +1621,11 @@ pref("dom.ipc.cpows.forbid-unsafe-from-browser", true);
 // detection).
 pref("dom.ipc.processHangMonitor", true);
 
+#if defined(NIGHTLY_BUILD) && defined(XP_WIN)
+// Allows us to deprioritize the processes of background tabs at an OS level
+pref("dom.ipc.processPriorityManager.enabled", true);
+#endif
+
 #ifdef DEBUG
 // Don't report hangs in DEBUG builds. They're too slow and often a
 // debugger is attached.
@@ -1650,6 +1674,7 @@ pref("extensions.pocket.oAuthConsumerKey", "40249-e88c401e1b1f2242d9e441c4");
 pref("extensions.pocket.site", "getpocket.com");
 
 pref("signon.schemeUpgrades", true);
+pref("signon.privateBrowsingCapture.enabled", true);
 
 // Enable the "Simplify Page" feature in Print Preview. This feature
 // is disabled by default in toolkit.
@@ -1681,11 +1706,10 @@ pref("browser.crashReports.unsubmittedCheck.autoSubmit2", false);
 // "detect" means it's enabled if conditions defined in the extension are met.
 #ifdef NIGHTLY_BUILD
 pref("extensions.formautofill.available", "on");
-pref("extensions.formautofill.creditCards.available", true);
 #else
 pref("extensions.formautofill.available", "detect");
-pref("extensions.formautofill.creditCards.available", false);
 #endif
+pref("extensions.formautofill.creditCards.available", false);
 pref("extensions.formautofill.addresses.enabled", true);
 pref("extensions.formautofill.creditCards.enabled", true);
 // Pref for shield/heartbeat to recognize users who have used Credit Card
@@ -1723,19 +1747,6 @@ pref("extensions.screenshots.disabled", false);
 // disable uploading to the server.
 pref("extensions.screenshots.upload-disabled", false);
 
-// Preferences for BrowserErrorReporter.jsm
-// Only collect errors on Nightly, and specifically not local builds
-#if defined(NIGHTLY_BUILD) && MOZ_UPDATE_CHANNEL != default
-pref("browser.chrome.errorReporter.enabled", true);
-#else
-pref("browser.chrome.errorReporter.enabled", false);
-#endif
-pref("browser.chrome.errorReporter.sampleRate", "0.001");
-pref("browser.chrome.errorReporter.publicKey", "c709cb7a2c0b4f0882fcc84a5af161ec");
-pref("browser.chrome.errorReporter.projectId", "339");
-pref("browser.chrome.errorReporter.submitUrl", "https://sentry.prod.mozaws.net/api/339/store/");
-pref("browser.chrome.errorReporter.logLevel", "Error");
-
 // URL for Learn More link for browser error logging in preferences
 pref("browser.chrome.errorReporter.infoURL",
      "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/nightly-error-collection");
@@ -1756,11 +1767,12 @@ pref("app.shield.optoutstudies.enabled", false);
 #endif
 
 // Multi-lingual preferences
-pref("intl.multilingual.enabled", false);
-// AMO only serves language packs for release and beta versions.
 #ifdef RELEASE_OR_BETA
+pref("intl.multilingual.enabled", true);
 pref("intl.multilingual.downloadEnabled", true);
 #else
+pref("intl.multilingual.enabled", false);
+// AMO only serves language packs for release and beta versions.
 pref("intl.multilingual.downloadEnabled", false);
 #endif
 
@@ -1776,16 +1788,14 @@ pref("browser.fission.simulate", false);
 // On platforms that do not build libprio, do not set these prefs at all, which gives us a way to detect support.
 
 // Curve25519 public keys for Prio servers
-#ifdef MOZ_LIBPRIO
 pref("prio.publicKeyA", "35AC1C7576C7C6EDD7FED6BCFC337B34D48CB4EE45C86BEEFB40BD8875707733");
 pref("prio.publicKeyB", "26E6674E65425B823F1F1D5F96E3BB3EF9E406EC7FBA7DEF8B08A35DD135AF50");
-#endif
 
 // Coverage ping is disabled by default.
 pref("toolkit.coverage.enabled", false);
 pref("toolkit.coverage.endpoint.base", "https://coverage.mozilla.org");
 // Whether or not Prio-encoded Telemetry will be sent along with the main ping.
-#if defined(NIGHTLY_BUILD) && defined(MOZ_LIBPRIO)
+#if defined(NIGHTLY_BUILD)
 pref("prio.enabled", true);
 #endif
 
@@ -1796,7 +1806,11 @@ pref("browser.discovery.sites", "addons.mozilla.org");
 
 pref("browser.engagement.recent_visited_origins.expiry", 86400); // 24 * 60 * 60 (24 hours in seconds)
 
-// Show the warning page for the new about config. Will replace general.warnOnAboutConfig.
-#ifdef NIGHTLY_BUILD
 pref("browser.aboutConfig.showWarning", true);
-#endif
+
+#if defined(XP_WIN) && defined(MOZ_LAUNCHER_PROCESS)
+// Launcher process is disabled by default, will be selectively enabled via SHIELD
+pref("browser.launcherProcess.enabled", false);
+#endif // defined(XP_WIN) && defined(MOZ_LAUNCHER_PROCESS)
+
+pref("browser.toolbars.keyboard_navigation", false);

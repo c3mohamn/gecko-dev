@@ -9,15 +9,15 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkx.h>
 #ifdef MOZ_WAYLAND
-#include "nsWaylandDisplay.h"
-#include <wayland-egl.h>
+#  include "nsWaylandDisplay.h"
+#  include <wayland-egl.h>
 #endif
 #include <stdio.h>
 #include <dlfcn.h>
 
 #ifdef ACCESSIBILITY
-#include <atk/atk.h>
-#include "maiRedundantObjectFactory.h"
+#  include <atk/atk.h>
+#  include "maiRedundantObjectFactory.h"
 #endif
 
 #ifdef MOZ_WAYLAND
@@ -160,6 +160,7 @@ void moz_container_init(MozContainer *container) {
   // We can draw to x11 window any time.
   container->ready_to_draw = GDK_IS_X11_DISPLAY(gdk_display_get_default());
   container->surface_needs_clear = true;
+  container->egl_surface_needs_update = false;
 #endif
 }
 
@@ -177,6 +178,9 @@ static void frame_callback_handler(void *data, struct wl_callback *callback,
                                    uint32_t time) {
   MozContainer *container = MOZ_CONTAINER(data);
   g_clear_pointer(&container->frame_callback_handler, wl_callback_destroy);
+  if (!container->ready_to_draw) {
+    container->egl_surface_needs_update = true;
+  }
   container->ready_to_draw = true;
 }
 
@@ -210,6 +214,7 @@ static void moz_container_unmap_wayland(MozContainer *container) {
   g_clear_pointer(&container->frame_callback_handler, wl_callback_destroy);
 
   container->surface_needs_clear = true;
+  container->egl_surface_needs_update = false;
   container->ready_to_draw = false;
 }
 
@@ -312,8 +317,12 @@ void moz_container_realize(GtkWidget *widget) {
     attributes.width = allocation.width;
     attributes.height = allocation.height;
     attributes.wclass = GDK_INPUT_OUTPUT;
-    attributes.visual = gtk_widget_get_visual(widget);
     attributes.window_type = GDK_WINDOW_CHILD;
+    MozContainer *container = MOZ_CONTAINER(widget);
+    attributes.visual =
+        container->force_default_visual
+            ? gdk_screen_get_system_visual(gtk_widget_get_screen(widget))
+            : gtk_widget_get_visual(widget);
 
     window = gdk_window_new(parent, &attributes, attributes_mask);
     gdk_window_set_user_data(window, widget);
@@ -501,7 +510,6 @@ struct wl_surface *moz_container_get_wl_surface(MozContainer *container) {
     container->subsurface = wl_subcompositor_get_subsurface(
         waylandDisplay->GetSubcompositor(), container->surface,
         moz_container_get_gtk_container_surface(container));
-    WaylandDisplayRelease(waylandDisplay);
 
     GdkWindow *window = gtk_widget_get_window(GTK_WIDGET(container));
     gint x, y;
@@ -517,6 +525,10 @@ struct wl_surface *moz_container_get_wl_surface(MozContainer *container) {
 
     wl_surface_set_buffer_scale(container->surface,
                                 moz_container_get_scale(container));
+
+    wl_surface_commit(container->surface);
+    wl_display_flush(waylandDisplay->GetDisplay());
+    WaylandDisplayRelease(waylandDisplay);
   }
 
   return container->surface;
@@ -548,4 +560,14 @@ gboolean moz_container_surface_needs_clear(MozContainer *container) {
   container->surface_needs_clear = false;
   return state;
 }
+
+gboolean moz_container_egl_surface_needs_update(MozContainer *container) {
+  gboolean state = container->egl_surface_needs_update;
+  container->egl_surface_needs_update = false;
+  return state;
+}
 #endif
+
+void moz_container_force_default_visual(MozContainer *container) {
+  container->force_default_visual = true;
+}

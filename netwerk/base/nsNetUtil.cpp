@@ -919,7 +919,7 @@ nsresult NS_NewStreamLoaderInternal(
   }
   rv = NS_NewStreamLoader(outStream, aObserver);
   NS_ENSURE_SUCCESS(rv, rv);
-  return channel->AsyncOpen2(*outStream);
+  return channel->AsyncOpen(*outStream);
 }
 
 nsresult NS_NewStreamLoader(
@@ -973,7 +973,7 @@ nsresult NS_ImplementChannelOpen(nsIChannel *channel, nsIInputStream **result) {
                                          getter_AddRefs(stream));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = NS_MaybeOpenChannelUsingAsyncOpen2(channel, listener);
+  rv = NS_MaybeOpenChannelUsingAsyncOpen(channel, listener);
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint64_t n;
@@ -1683,7 +1683,7 @@ nsresult NS_LoadPersistentPropertiesFromURISpec(
                      nsIContentPolicy::TYPE_OTHER);
   NS_ENSURE_SUCCESS(rv, rv);
   nsCOMPtr<nsIInputStream> in;
-  rv = channel->Open2(getter_AddRefs(in));
+  rv = channel->Open(getter_AddRefs(in));
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIPersistentProperties> properties = new nsPersistentProperties();
@@ -2357,22 +2357,16 @@ nsresult NS_LinkRedirectChannels(uint32_t channelId,
   return registrar->LinkChannels(channelId, parentChannel, _result);
 }
 
-nsresult NS_MaybeOpenChannelUsingOpen2(nsIChannel *aChannel,
-                                       nsIInputStream **aStream) {
+nsresult NS_MaybeOpenChannelUsingOpen(nsIChannel *aChannel,
+                                      nsIInputStream **aStream) {
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  if (loadInfo && loadInfo->GetSecurityMode() != 0) {
-    return aChannel->Open2(aStream);
-  }
   return aChannel->Open(aStream);
 }
 
-nsresult NS_MaybeOpenChannelUsingAsyncOpen2(nsIChannel *aChannel,
-                                            nsIStreamListener *aListener) {
+nsresult NS_MaybeOpenChannelUsingAsyncOpen(nsIChannel *aChannel,
+                                           nsIStreamListener *aListener) {
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  if (loadInfo && loadInfo->GetSecurityMode() != 0) {
-    return aChannel->AsyncOpen2(aListener);
-  }
-  return aChannel->AsyncOpen(aListener, nullptr);
+  return aChannel->AsyncOpen(aListener);
 }
 
 /** Given the first (disposition) token from a Content-Disposition header,
@@ -2822,6 +2816,66 @@ nsresult GetParameterHTTP(const nsACString &aHeaderVal, const char *aParamName,
                           nsAString &aResult) {
   return nsMIMEHeaderParamImpl::GetParameterHTTP(aHeaderVal, aParamName,
                                                  aResult);
+}
+
+bool SchemeIsHTTP(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("http");
+}
+
+bool SchemeIsHTTPS(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("https");
+}
+
+bool SchemeIsJavascript(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("javascript");
+}
+
+bool SchemeIsChrome(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("chrome");
+}
+
+bool SchemeIsAbout(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("about");
+}
+
+bool SchemeIsBlob(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("blob");
+}
+
+bool SchemeIsFile(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("file");
+}
+
+bool SchemeIsData(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("data");
+}
+
+bool SchemeIsWYCIWYG(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("wyciwyg");
+}
+
+bool SchemeIsViewSource(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("view-source");
+}
+
+bool SchemeIsResource(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("resource");
+}
+
+bool SchemeIsFTP(nsIURI *aURI) {
+  MOZ_ASSERT(aURI);
+  return aURI->SchemeIs("ftp");
 }
 
 }  // namespace net

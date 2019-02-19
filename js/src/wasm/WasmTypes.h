@@ -138,18 +138,6 @@ typedef Vector<UniqueChars, 0, SystemAllocPolicy> UniqueCharsVector;
   const uint8_t* deserialize(const uint8_t* cursor); \
   size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 
-#define WASM_DECLARE_SERIALIZABLE_VIRTUAL(Type)              \
-  virtual size_t serializedSize() const;                     \
-  virtual uint8_t* serialize(uint8_t* cursor) const;         \
-  virtual const uint8_t* deserialize(const uint8_t* cursor); \
-  virtual size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
-
-#define WASM_DECLARE_SERIALIZABLE_OVERRIDE(Type)              \
-  size_t serializedSize() const override;                     \
-  uint8_t* serialize(uint8_t* cursor) const override;         \
-  const uint8_t* deserialize(const uint8_t* cursor) override; \
-  size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const override;
-
 template <class T>
 struct SerializableRefPtr : RefPtr<T> {
   using RefPtr<T>::operator=;
@@ -235,6 +223,7 @@ static inline PackedTypeCode PackTypeCode(TypeCode tc, uint32_t refTypeIndex) {
   MOZ_ASSERT(uint32_t(tc) <= 0xFF);
   MOZ_ASSERT_IF(tc != TypeCode::Ref, refTypeIndex == NoRefTypeIndex);
   MOZ_ASSERT_IF(tc == TypeCode::Ref, refTypeIndex <= MaxTypes);
+  static_assert(MaxTypes < (1 << (32 - 8)), "enough bits");
   return PackedTypeCode((refTypeIndex << 8) | uint32_t(tc));
 }
 
@@ -472,11 +461,9 @@ static inline jit::MIRType ToMIRType(ValType vt) {
     case ValType::F64:
       return jit::MIRType::Double;
     case ValType::Ref:
-      return jit::MIRType::Pointer;
     case ValType::AnyRef:
-      return jit::MIRType::Pointer;
     case ValType::NullRef:
-      return jit::MIRType::Pointer;
+      return jit::MIRType::RefOrNull;
   }
   MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("bad type");
 }
@@ -665,8 +652,6 @@ class Tiers {
 enum ModuleKind { Wasm, AsmJS };
 
 enum class Shareable { False, True };
-
-enum class HasGcTypes { False, True };
 
 // The LitVal class represents a single WebAssembly value of a given value
 // type, mostly for the purpose of numeric literals and initializers. A LitVal
@@ -1152,13 +1137,13 @@ typedef Vector<GlobalDesc, 0, SystemAllocPolicy> GlobalDescVector;
 
 // When a ElemSegment is "passive" it is shared between a wasm::Module and its
 // wasm::Instances. To allow each segment to be released as soon as the last
-// Instance table.drops it and the Module is destroyed, each ElemSegment is
+// Instance elem.drops it and the Module is destroyed, each ElemSegment is
 // individually atomically ref-counted.
 
 struct ElemSegment : AtomicRefCounted<ElemSegment> {
   uint32_t tableIndex;
   Maybe<InitExpr> offsetIfActive;
-  Uint32Vector elemFuncIndices;
+  Uint32Vector elemFuncIndices; // Element may be NullFuncIndex
 
   bool active() const { return !!offsetIfActive; }
 
@@ -1168,6 +1153,11 @@ struct ElemSegment : AtomicRefCounted<ElemSegment> {
 
   WASM_DECLARE_SERIALIZABLE(ElemSegment)
 };
+
+// NullFuncIndex represents the case when an element segment (of type anyfunc)
+// contains a null element.
+constexpr uint32_t NullFuncIndex = UINT32_MAX;
+static_assert(NullFuncIndex > MaxFuncs, "Invariant");
 
 typedef RefPtr<ElemSegment> MutableElemSegment;
 typedef SerializableRefPtr<const ElemSegment> SharedElemSegment;
@@ -2063,17 +2053,17 @@ enum class SymbolicAddress {
   Uint64ToDouble,
   Int64ToFloat32,
   Int64ToDouble,
-  GrowMemory,
-  CurrentMemory,
+  MemoryGrow,
+  MemorySize,
   WaitI32,
   WaitI64,
   Wake,
   MemCopy,
-  MemDrop,
+  DataDrop,
   MemFill,
   MemInit,
   TableCopy,
-  TableDrop,
+  ElemDrop,
   TableGet,
   TableGrow,
   TableInit,
@@ -2084,6 +2074,13 @@ enum class SymbolicAddress {
   StructNarrow,
 #if defined(JS_CODEGEN_MIPS32)
   js_jit_gAtomic64Lock,
+#endif
+#ifdef WASM_CODEGEN_DEBUG
+  PrintI32,
+  PrintPtr,
+  PrintF32,
+  PrintF64,
+  PrintText,
 #endif
   Limit
 };
@@ -2615,6 +2612,20 @@ class DebugFrame {
 // Verbose logging support.
 
 extern void Log(JSContext* cx, const char* fmt, ...) MOZ_FORMAT_PRINTF(2, 3);
+
+// Codegen debug support.
+
+enum class DebugChannel {
+  Function,
+  Import,
+};
+
+#ifdef WASM_CODEGEN_DEBUG
+bool IsCodegenDebugEnabled(DebugChannel channel);
+#endif
+
+void DebugCodegen(DebugChannel channel, const char* fmt, ...)
+    MOZ_FORMAT_PRINTF(2, 3);
 
 }  // namespace wasm
 }  // namespace js

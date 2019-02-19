@@ -43,8 +43,8 @@ Artifact builds download prebuilt C++ components rather than building
 them locally. Artifact builds are faster!
 
 Artifact builds are recommended for people working on Firefox or
-Firefox for Android frontends. They are unsuitable for those working
-on C++ code. For more information see:
+Firefox for Android frontends, or the GeckoView Java API. They are unsuitable
+for those working on C++ code. For more information see:
 https://developer.mozilla.org/en-US/docs/Artifact_builds.
 
 Please choose the version of Firefox you want to build:
@@ -54,8 +54,8 @@ Your choice: '''
 APPLICATIONS_LIST = [
     ('Firefox for Desktop Artifact Mode', 'browser_artifact_mode'),
     ('Firefox for Desktop', 'browser'),
-    ('Firefox for Android Artifact Mode', 'mobile_android_artifact_mode'),
-    ('Firefox for Android', 'mobile_android'),
+    ('GeckoView/Firefox for Android Artifact Mode', 'mobile_android_artifact_mode'),
+    ('GeckoView/Firefox for Android', 'mobile_android'),
 ]
 
 # This is a workaround for the fact that we must support python2.6 (which has
@@ -181,8 +181,7 @@ DEBIAN_DISTROS = (
     'LinuxMint',
     'Elementary OS',
     'Elementary',
-    '"elementary OS"',
-    '"elementary"'
+    'elementary'
 )
 
 ADD_GIT_TOOLS_PATH = '''
@@ -341,7 +340,7 @@ class Bootstrapper(object):
     # be available. We /could/ refactor parts of mach_bootstrap.py to be
     # part of this directory to avoid the code duplication.
     def try_to_create_state_dir(self):
-        state_dir, _ = get_state_dir()
+        state_dir = get_state_dir()
 
         if not os.path.exists(state_dir):
             should_create_state_dir = True
@@ -380,9 +379,10 @@ class Bootstrapper(object):
             sys.exit(1)
 
         self.instance.state_dir = state_dir
-        self.instance.ensure_stylo_packages(state_dir, checkout_root)
         self.instance.ensure_node_packages(state_dir, checkout_root)
-        self.instance.ensure_clang_static_analysis_package(checkout_root)
+        if not self.instance.artifact_mode:
+            self.instance.ensure_stylo_packages(state_dir, checkout_root)
+            self.instance.ensure_clang_static_analysis_package(state_dir, checkout_root)
 
     def check_telemetry_opt_in(self, state_dir):
         # We can't prompt the user.
@@ -411,6 +411,9 @@ class Bootstrapper(object):
         else:
             name, application = APPLICATIONS[self.choice]
 
+        self.instance.application = application
+        self.instance.artifact_mode = 'artifact_mode' in application
+
         if self.instance.no_system_changes:
             state_dir_available, state_dir = self.try_to_create_state_dir()
             # We need to enable the loading of hgrc in case extensions are
@@ -437,7 +440,8 @@ class Bootstrapper(object):
 
         hg_installed, hg_modern = self.instance.ensure_mercurial_modern()
         self.instance.ensure_python_modern()
-        self.instance.ensure_rust_modern()
+        if not self.instance.artifact_mode:
+            self.instance.ensure_rust_modern()
 
         state_dir_available, state_dir = self.try_to_create_state_dir()
 

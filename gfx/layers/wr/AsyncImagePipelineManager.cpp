@@ -234,8 +234,7 @@ Maybe<TextureHost::ResourceUpdateOp> AsyncImagePipelineManager::UpdateImageKeys(
   // Use WebRenderTextureHostWrapper only for video.
   // And WebRenderTextureHostWrapper could be used only with
   // WebRenderTextureHost that supports NativeTexture
-  bool useWrTextureWrapper = aPipeline->mImageHost->GetAsyncRef() &&
-                             useExternalImage && wrTexture &&
+  bool useWrTextureWrapper = useExternalImage && wrTexture &&
                              wrTexture->SupportsWrNativeTexture();
 
   // The non-external image code path falls back to converting the texture into
@@ -280,13 +279,13 @@ Maybe<TextureHost::ResourceUpdateOp> AsyncImagePipelineManager::UpdateImageKeys(
     MOZ_ASSERT(canUpdate);
     // Reuse WebRenderTextureHostWrapper. With it, rendered frame could be
     // updated without batch re-creation.
-    aPipeline->mWrTextureWrapper->UpdateWebRenderTextureHost(wrTexture);
+    aPipeline->mWrTextureWrapper->UpdateWebRenderTextureHost(aMaybeFastTxn, wrTexture);
     // Ensure frame generation.
     SetWillGenerateFrame();
   } else {
     if (useWrTextureWrapper) {
       aPipeline->mWrTextureWrapper = new WebRenderTextureHostWrapper(this);
-      aPipeline->mWrTextureWrapper->UpdateWebRenderTextureHost(wrTexture);
+      aPipeline->mWrTextureWrapper->UpdateWebRenderTextureHost(aMaybeFastTxn, wrTexture);
     }
     Range<wr::ImageKey> keys(&aKeys[0], aKeys.Length());
     auto externalImageKey =
@@ -399,11 +398,14 @@ void AsyncImagePipelineManager::ApplyAsyncImageForPipeline(
   wr::DisplayListBuilder builder(aPipelineId, contentSize);
 
   float opacity = 1.0f;
+  wr::StackingContextParams params;
+  params.opacity = &opacity;
+  params.mTransformPtr =
+      aPipeline->mScTransform.IsIdentity() ? nullptr : &aPipeline->mScTransform;
+  params.mix_blend_mode = aPipeline->mMixBlendMode;
+
   Maybe<wr::WrSpatialId> referenceFrameId = builder.PushStackingContext(
-      wr::ToRoundedLayoutRect(aPipeline->mScBounds), nullptr, nullptr, &opacity,
-      aPipeline->mScTransform.IsIdentity() ? nullptr : &aPipeline->mScTransform,
-      wr::TransformStyle::Flat, nullptr, aPipeline->mMixBlendMode,
-      nsTArray<wr::FilterOp>(), true,
+      params, wr::ToRoundedLayoutRect(aPipeline->mScBounds),
       // This is fine to do unconditionally because we only push images here.
       wr::RasterSpace::Screen());
 

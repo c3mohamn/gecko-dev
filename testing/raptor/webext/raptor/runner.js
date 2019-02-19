@@ -70,7 +70,6 @@ var results = {"name": "",
 function getTestSettings() {
   console.log("getting test settings from control server");
   return new Promise(resolve => {
-
     fetch(settingsURL).then(function(response) {
       response.text().then(function(text) {
         console.log(text);
@@ -352,7 +351,6 @@ async function nextCycle() {
   }
   if (pageCycle <= pageCycles) {
     setTimeout(function() {
-
       let text = "begin pagecycle " + pageCycle;
       postToControlServer("status", text);
 
@@ -398,9 +396,13 @@ async function nextCycle() {
     }
 }
 
-function timeoutAlarmListener() {
+async function timeoutAlarmListener() {
   console.error("raptor-page-timeout on %s" % testURL);
   postToControlServer("raptor-page-timeout", [testName, testURL]);
+  // take a screen capture
+  if (screenCapture) {
+    await getScreenCapture();
+  }
   // call clean-up to shutdown gracefully
   cleanUp();
 }

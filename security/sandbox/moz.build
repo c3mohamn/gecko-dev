@@ -159,7 +159,7 @@ elif CONFIG['OS_ARCH'] == 'WINNT':
     for var in ('UNICODE', '_UNICODE', 'NS_NO_XPCOM',
                 '_CRT_RAND_S', 'CHROMIUM_SANDBOX_BUILD'):
         DEFINES[var] = True
-    if CONFIG['CC_TYPE'] != 'gcc':
+    if CONFIG['CC_TYPE'] not in ('gcc', 'clang'):
         DEFINES['SANDBOX_EXPORTS'] = True
 
     LOCAL_INCLUDES += ['/security/sandbox/chromium-shim']
@@ -169,7 +169,7 @@ elif CONFIG['OS_ARCH'] == 'WINNT':
     DisableStlWrapping()
 
     # Suppress warnings in third-party code.
-    if CONFIG['CC_TYPE'] in ('msvc', 'clang-cl'):
+    if CONFIG['CC_TYPE'] == 'clang-cl':
         CXXFLAGS += [
             '-wd4275', # non dll-interface class exception used as base for dll-interface class
             '-wd4717', # recursive on all control paths, function will cause runtime stack overflow

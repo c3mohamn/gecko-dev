@@ -15,6 +15,7 @@
 #include "mozilla/EndianUtils.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Likely.h"
+#include "mozilla/Maybe.h"
 
 #include <limits> /* for std::numeric_limits */
 
@@ -35,7 +36,7 @@ union Value;
 #define JSVAL_INT_MAX ((int32_t)0x7fffffff)
 
 #if defined(JS_PUNBOX64)
-#define JSVAL_TAG_SHIFT 47
+#  define JSVAL_TAG_SHIFT 47
 #endif
 
 // Use enums so that printing a JS::Value in the debugger shows nice
@@ -43,11 +44,11 @@ union Value;
 
 // Work around a GCC bug. See comment above #undef JS_ENUM_HEADER.
 #if MOZ_IS_GCC
-#define JS_ENUM_HEADER(id, type) enum id
-#define JS_ENUM_FOOTER(id) __attribute__((packed))
+#  define JS_ENUM_HEADER(id, type) enum id
+#  define JS_ENUM_FOOTER(id) __attribute__((packed))
 #else
-#define JS_ENUM_HEADER(id, type) enum id : type
-#define JS_ENUM_FOOTER(id)
+#  define JS_ENUM_HEADER(id, type) enum id : type
+#  define JS_ENUM_FOOTER(id)
 #endif
 
 enum JSValueType : uint8_t {
@@ -60,9 +61,7 @@ enum JSValueType : uint8_t {
   JSVAL_TYPE_STRING = 0x06,
   JSVAL_TYPE_SYMBOL = 0x07,
   JSVAL_TYPE_PRIVATE_GCTHING = 0x08,
-#ifdef ENABLE_BIGINT
   JSVAL_TYPE_BIGINT = 0x09,
-#endif
   JSVAL_TYPE_OBJECT = 0x0c,
 
   // These never appear in a jsval; they are only provided as an out-of-band
@@ -86,9 +85,7 @@ JS_ENUM_HEADER(JSValueTag, uint32_t){
     JSVAL_TAG_STRING = JSVAL_TAG_CLEAR | JSVAL_TYPE_STRING,
     JSVAL_TAG_SYMBOL = JSVAL_TAG_CLEAR | JSVAL_TYPE_SYMBOL,
     JSVAL_TAG_PRIVATE_GCTHING = JSVAL_TAG_CLEAR | JSVAL_TYPE_PRIVATE_GCTHING,
-#ifdef ENABLE_BIGINT
     JSVAL_TAG_BIGINT = JSVAL_TAG_CLEAR | JSVAL_TYPE_BIGINT,
-#endif
     JSVAL_TAG_OBJECT = JSVAL_TAG_CLEAR |
                        JSVAL_TYPE_OBJECT} JS_ENUM_FOOTER(JSValueTag);
 
@@ -108,9 +105,7 @@ JS_ENUM_HEADER(JSValueTag, uint32_t){
     JSVAL_TAG_SYMBOL = JSVAL_TAG_MAX_DOUBLE | JSVAL_TYPE_SYMBOL,
     JSVAL_TAG_PRIVATE_GCTHING = JSVAL_TAG_MAX_DOUBLE |
                                 JSVAL_TYPE_PRIVATE_GCTHING,
-#ifdef ENABLE_BIGINT
     JSVAL_TAG_BIGINT = JSVAL_TAG_MAX_DOUBLE | JSVAL_TYPE_BIGINT,
-#endif
     JSVAL_TAG_OBJECT = JSVAL_TAG_MAX_DOUBLE |
                        JSVAL_TYPE_OBJECT} JS_ENUM_FOOTER(JSValueTag);
 
@@ -131,9 +126,7 @@ enum JSValueShiftedTag : uint64_t {
   JSVAL_SHIFTED_TAG_SYMBOL = (((uint64_t)JSVAL_TAG_SYMBOL) << JSVAL_TAG_SHIFT),
   JSVAL_SHIFTED_TAG_PRIVATE_GCTHING =
       (((uint64_t)JSVAL_TAG_PRIVATE_GCTHING) << JSVAL_TAG_SHIFT),
-#ifdef ENABLE_BIGINT
   JSVAL_SHIFTED_TAG_BIGINT = (((uint64_t)JSVAL_TAG_BIGINT) << JSVAL_TAG_SHIFT),
-#endif
   JSVAL_SHIFTED_TAG_OBJECT = (((uint64_t)JSVAL_TAG_OBJECT) << JSVAL_TAG_SHIFT)
 };
 
@@ -154,33 +147,33 @@ static_assert(sizeof(JSValueShiftedTag) == sizeof(uint64_t),
 
 #if defined(JS_NUNBOX32)
 
-#define JSVAL_TYPE_TO_TAG(type) ((JSValueTag)(JSVAL_TAG_CLEAR | (type)))
+#  define JSVAL_TYPE_TO_TAG(type) ((JSValueTag)(JSVAL_TAG_CLEAR | (type)))
 
-#define JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET JSVAL_TAG_OBJECT
-#define JSVAL_UPPER_INCL_TAG_OF_NUMBER_SET JSVAL_TAG_INT32
-#define JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET JSVAL_TAG_STRING
+#  define JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET JSVAL_TAG_OBJECT
+#  define JSVAL_UPPER_INCL_TAG_OF_NUMBER_SET JSVAL_TAG_INT32
+#  define JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET JSVAL_TAG_STRING
 
 #elif defined(JS_PUNBOX64)
 
 // This should only be used in toGCThing, see the 'Spectre mitigations' comment.
-#define JSVAL_PAYLOAD_MASK_GCTHING 0x00007FFFFFFFFFFFLL
+#  define JSVAL_PAYLOAD_MASK_GCTHING 0x00007FFFFFFFFFFFLL
 
-#define JSVAL_TAG_MASK 0xFFFF800000000000LL
-#define JSVAL_TYPE_TO_TAG(type) ((JSValueTag)(JSVAL_TAG_MAX_DOUBLE | (type)))
-#define JSVAL_TYPE_TO_SHIFTED_TAG(type) \
-  (((uint64_t)JSVAL_TYPE_TO_TAG(type)) << JSVAL_TAG_SHIFT)
+#  define JSVAL_TAG_MASK 0xFFFF800000000000LL
+#  define JSVAL_TYPE_TO_TAG(type) ((JSValueTag)(JSVAL_TAG_MAX_DOUBLE | (type)))
+#  define JSVAL_TYPE_TO_SHIFTED_TAG(type) \
+    (((uint64_t)JSVAL_TYPE_TO_TAG(type)) << JSVAL_TAG_SHIFT)
 
-#define JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET JSVAL_TAG_OBJECT
-#define JSVAL_UPPER_INCL_TAG_OF_NUMBER_SET JSVAL_TAG_INT32
-#define JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET JSVAL_TAG_STRING
+#  define JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET JSVAL_TAG_OBJECT
+#  define JSVAL_UPPER_INCL_TAG_OF_NUMBER_SET JSVAL_TAG_INT32
+#  define JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET JSVAL_TAG_STRING
 
-#define JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_PRIMITIVE_SET JSVAL_SHIFTED_TAG_OBJECT
-#define JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_NUMBER_SET JSVAL_SHIFTED_TAG_BOOLEAN
-#define JSVAL_LOWER_INCL_SHIFTED_TAG_OF_GCTHING_SET JSVAL_SHIFTED_TAG_STRING
+#  define JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_PRIMITIVE_SET JSVAL_SHIFTED_TAG_OBJECT
+#  define JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_NUMBER_SET JSVAL_SHIFTED_TAG_BOOLEAN
+#  define JSVAL_LOWER_INCL_SHIFTED_TAG_OF_GCTHING_SET JSVAL_SHIFTED_TAG_STRING
 
 // JSVAL_TYPE_OBJECT and JSVAL_TYPE_NULL differ by one bit. We can use this to
 // implement toObjectOrNull more efficiently.
-#define JSVAL_OBJECT_OR_NULL_BIT (uint64_t(0x8) << JSVAL_TAG_SHIFT)
+#  define JSVAL_OBJECT_OR_NULL_BIT (uint64_t(0x8) << JSVAL_TAG_SHIFT)
 static_assert(
     (JSVAL_SHIFTED_TAG_NULL ^ JSVAL_SHIFTED_TAG_OBJECT) ==
         JSVAL_OBJECT_OR_NULL_BIT,
@@ -326,48 +319,46 @@ union alignas(8) Value {
 #if defined(JS_PUNBOX64) && !defined(_WIN64)
   // MSVC doesn't pack these correctly :-(
   struct {
-#if MOZ_LITTLE_ENDIAN
+#  if MOZ_LITTLE_ENDIAN
     uint64_t payload47_ : 47;
     JSValueTag tag_ : 17;
-#else
+#  else
     JSValueTag tag_ : 17;
     uint64_t payload47_ : 47;
-#endif  // MOZ_LITTLE_ENDIAN
+#  endif  // MOZ_LITTLE_ENDIAN
   } debugView_;
 #endif  // defined(JS_PUNBOX64) && !defined(_WIN64)
 
   struct {
 #if defined(JS_PUNBOX64)
-#if MOZ_BIG_ENDIAN
+#  if MOZ_BIG_ENDIAN
     uint32_t : 32;  // padding
-#endif              // MOZ_BIG_ENDIAN
+#  endif            // MOZ_BIG_ENDIAN
     union {
       int32_t i32_;
       uint32_t u32_;
       JSWhyMagic why_;
     } payload_;
 #elif defined(JS_NUNBOX32)
-#if MOZ_BIG_ENDIAN
+#  if MOZ_BIG_ENDIAN
     JSValueTag tag_;
-#endif  // MOZ_BIG_ENDIAN
+#  endif  // MOZ_BIG_ENDIAN
     union {
       int32_t i32_;
       uint32_t u32_;
       uint32_t boo_;  // Don't use |bool| -- it must be four bytes.
       JSString* str_;
       JS::Symbol* sym_;
-#ifdef ENABLE_BIGINT
       JS::BigInt* bi_;
-#endif
       JSObject* obj_;
       js::gc::Cell* cell_;
       void* ptr_;
       JSWhyMagic why_;
     } payload_;
-#if MOZ_LITTLE_ENDIAN
+#  if MOZ_LITTLE_ENDIAN
     JSValueTag tag_;
-#endif  // MOZ_LITTLE_ENDIAN
-#endif  // defined(JS_PUNBOX64)
+#  endif  // MOZ_LITTLE_ENDIAN
+#endif    // defined(JS_PUNBOX64)
   } s_;
 
  public:
@@ -457,12 +448,10 @@ union alignas(8) Value {
     asBits_ = bitsFromTagAndPayload(JSVAL_TAG_SYMBOL, PayloadType(sym));
   }
 
-#ifdef ENABLE_BIGINT
   void setBigInt(JS::BigInt* bi) {
     MOZ_ASSERT(js::gc::IsCellPointerValid(bi));
     asBits_ = bitsFromTagAndPayload(JSVAL_TAG_BIGINT, PayloadType(bi));
   }
-#endif
 
   void setObject(JSObject& obj) {
     MOZ_ASSERT(js::gc::IsCellPointerValid(&obj));
@@ -610,9 +599,7 @@ union alignas(8) Value {
 
   bool isSymbol() const { return toTag() == JSVAL_TAG_SYMBOL; }
 
-#ifdef ENABLE_BIGINT
   bool isBigInt() const { return toTag() == JSVAL_TAG_BIGINT; }
-#endif
 
   bool isObject() const {
 #if defined(JS_NUNBOX32)
@@ -670,11 +657,9 @@ union alignas(8) Value {
     if (MOZ_UNLIKELY(isPrivateGCThing())) {
       return JS::GCThingTraceKind(toGCThing());
     }
-#ifdef ENABLE_BIGINT
     if (MOZ_UNLIKELY(isBigInt())) {
       return JS::TraceKind::BigInt;
     }
-#endif
     return JS::TraceKind(toTag() & 0x03);
   }
 
@@ -735,7 +720,6 @@ union alignas(8) Value {
 #endif
   }
 
-#ifdef ENABLE_BIGINT
   JS::BigInt* toBigInt() const {
     MOZ_ASSERT(isBigInt());
 #if defined(JS_NUNBOX32)
@@ -744,7 +728,6 @@ union alignas(8) Value {
     return reinterpret_cast<JS::BigInt*>(asBits_ ^ JSVAL_SHIFTED_TAG_BIGINT);
 #endif
   }
-#endif
 
   JSObject& toObject() const {
     MOZ_ASSERT(isObject());
@@ -860,11 +843,9 @@ union alignas(8) Value {
     MOZ_ASSERT(JS::GCThingTraceKind(cell) != JS::TraceKind::Symbol,
                "Private GC thing Values must not be symbols. Make a "
                "SymbolValue instead.");
-#ifdef ENABLE_BIGINT
     MOZ_ASSERT(JS::GCThingTraceKind(cell) != JS::TraceKind::BigInt,
                "Private GC thing Values must not be BigInts. Make a "
                "BigIntValue instead.");
-#endif
     MOZ_ASSERT(JS::GCThingTraceKind(cell) != JS::TraceKind::Object,
                "Private GC thing Values must not be objects. Make an "
                "ObjectValue instead.");
@@ -968,13 +949,11 @@ static inline Value SymbolValue(JS::Symbol* sym) {
   return v;
 }
 
-#ifdef ENABLE_BIGINT
 static inline Value BigIntValue(JS::BigInt* bi) {
   Value v;
   v.setBigInt(bi);
   return v;
 }
-#endif
 
 static inline Value BooleanValue(bool boo) {
   Value v;
@@ -1177,9 +1156,7 @@ class WrappedPtrOperations<JS::Value, Wrapper> {
   bool isDouble() const { return value().isDouble(); }
   bool isString() const { return value().isString(); }
   bool isSymbol() const { return value().isSymbol(); }
-#ifdef ENABLE_BIGINT
   bool isBigInt() const { return value().isBigInt(); }
-#endif
   bool isObject() const { return value().isObject(); }
   bool isMagic() const { return value().isMagic(); }
   bool isMagic(JSWhyMagic why) const { return value().isMagic(why); }
@@ -1195,9 +1172,7 @@ class WrappedPtrOperations<JS::Value, Wrapper> {
   double toDouble() const { return value().toDouble(); }
   JSString* toString() const { return value().toString(); }
   JS::Symbol* toSymbol() const { return value().toSymbol(); }
-#ifdef ENABLE_BIGINT
   JS::BigInt* toBigInt() const { return value().toBigInt(); }
-#endif
   JSObject& toObject() const { return value().toObject(); }
   JSObject* toObjectOrNull() const { return value().toObjectOrNull(); }
   gc::Cell* toGCThing() const { return value().toGCThing(); }
@@ -1237,9 +1212,7 @@ class MutableWrappedPtrOperations<JS::Value, Wrapper>
   bool setNumber(double d) { return value().setNumber(d); }
   void setString(JSString* str) { this->value().setString(str); }
   void setSymbol(JS::Symbol* sym) { this->value().setSymbol(sym); }
-#ifdef ENABLE_BIGINT
   void setBigInt(JS::BigInt* bi) { this->value().setBigInt(bi); }
-#endif
   void setObject(JSObject& obj) { this->value().setObject(obj); }
   void setObjectOrNull(JSObject* arg) { this->value().setObjectOrNull(arg); }
   void setPrivate(void* ptr) { this->value().setPrivate(ptr); }
@@ -1270,9 +1243,7 @@ class HeapBase<JS::Value, Wrapper>
   void setMagic(JSWhyMagic why) { setBarriered(JS::MagicValue(why)); }
   void setString(JSString* str) { setBarriered(JS::StringValue(str)); }
   void setSymbol(JS::Symbol* sym) { setBarriered(JS::SymbolValue(sym)); }
-#ifdef ENABLE_BIGINT
   void setBigInt(JS::BigInt* bi) { setBarriered(JS::BigIntValue(bi)); }
-#endif
   void setObject(JSObject& obj) { setBarriered(JS::ObjectValue(obj)); }
   void setPrivateGCThing(js::gc::Cell* cell) {
     setBarriered(JS::PrivateGCThingValue(cell));
@@ -1308,56 +1279,50 @@ class HeapBase<JS::Value, Wrapper>
   }
 };
 
-/*
- * If the Value is a GC pointer type, convert to that type and call |f| with
- * the pointer. If the Value is not a GC type, calls F::defaultValue.
- */
-template <typename F, typename... Args>
-auto DispatchTyped(F f, const JS::Value& val, Args&&... args)
-    -> decltype(f(static_cast<JSObject*>(nullptr),
-                  std::forward<Args>(args)...)) {
+// If the Value is a GC pointer type, call |f| with the pointer cast to that
+// type and return the result wrapped in a Maybe, otherwise return None().
+template <typename F>
+auto MapGCThingTyped(const JS::Value& val, F&& f) {
   if (val.isString()) {
     JSString* str = val.toString();
     MOZ_ASSERT(gc::IsCellPointerValid(str));
-    return f(str, std::forward<Args>(args)...);
+    return mozilla::Some(f(str));
   }
   if (val.isObject()) {
     JSObject* obj = &val.toObject();
     MOZ_ASSERT(gc::IsCellPointerValid(obj));
-    return f(obj, std::forward<Args>(args)...);
+    return mozilla::Some(f(obj));
   }
   if (val.isSymbol()) {
     JS::Symbol* sym = val.toSymbol();
     MOZ_ASSERT(gc::IsCellPointerValid(sym));
-    return f(sym, std::forward<Args>(args)...);
+    return mozilla::Some(f(sym));
   }
-#ifdef ENABLE_BIGINT
   if (val.isBigInt()) {
     JS::BigInt* bi = val.toBigInt();
     MOZ_ASSERT(gc::IsCellPointerValid(bi));
-    return f(bi, std::forward<Args>(args)...);
+    return mozilla::Some(f(bi));
   }
-#endif
   if (MOZ_UNLIKELY(val.isPrivateGCThing())) {
     MOZ_ASSERT(gc::IsCellPointerValid(val.toGCThing()));
-    return DispatchTyped(f, val.toGCCellPtr(), std::forward<Args>(args)...);
+    return mozilla::Some(MapGCThingTyped(val.toGCCellPtr(), std::move(f)));
   }
   MOZ_ASSERT(!val.isGCThing());
-  return F::defaultValue(val);
+  using ReturnType = decltype(f(static_cast<JSObject*>(nullptr)));
+  return mozilla::Maybe<ReturnType>();
 }
 
-template <class S>
-struct VoidDefaultAdaptor {
-  static void defaultValue(const S&) {}
-};
-template <class S>
-struct IdentityDefaultAdaptor {
-  static S defaultValue(const S& v) { return v; }
-};
-template <class S, bool v>
-struct BoolDefaultAdaptor {
-  static bool defaultValue(const S&) { return v; }
-};
+// If the Value is a GC pointer type, call |f| with the pointer cast to that
+// type. Return whether this happened.
+template <typename F>
+bool ApplyGCThingTyped(const JS::Value& val, F&& f) {
+  return MapGCThingTyped(val,
+                         [&f](auto t) {
+                           f(t);
+                           return true;
+                         })
+      .isSome();
+}
 
 static inline JS::Value PoisonedObjectValue(uintptr_t poison) {
   JS::Value v;

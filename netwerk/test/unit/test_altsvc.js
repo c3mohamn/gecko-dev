@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var h2Port;
 var prefs;
@@ -224,7 +224,7 @@ function doTest()
   }
   loadWithoutClearingMappings = false;
   chan.loadInfo.originAttributes = originAttributes;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 // xaltsvc is overloaded to do two things..

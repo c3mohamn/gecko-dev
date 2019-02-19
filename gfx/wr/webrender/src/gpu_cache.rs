@@ -24,9 +24,10 @@
 //! address in the GPU cache of a given resource slot
 //! for this frame.
 
-use api::{DebugFlags, DocumentId, PremultipliedColorF, IdNamespace, TexelRect};
-use api::{VoidPtrToSizeFn};
-use euclid::TypedRect;
+use api::{DebugFlags, DocumentId, PremultipliedColorF, TexelRect};
+#[cfg(test)]
+use api::IdNamespace;
+use euclid::{HomogeneousVector, TypedRect};
 use internal_types::{FastHashMap};
 use profiler::GpuCacheProfileCounters;
 use render_backend::{FrameStamp, FrameId};
@@ -34,7 +35,6 @@ use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use std::{mem, u16, u32};
 use std::num::NonZeroU32;
 use std::ops::Add;
-use std::os::raw::c_void;
 use std::time::{Duration, Instant};
 
 
@@ -55,7 +55,7 @@ const RECLAIM_THRESHOLD: f32 = 0.2;
 /// blow away the cache and rebuild it.
 const RECLAIM_DELAY_S: u64 = 5;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, MallocSizeOf, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Epoch(u32);
@@ -66,7 +66,7 @@ impl Epoch {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CacheLocation {
@@ -75,7 +75,7 @@ struct CacheLocation {
 }
 
 /// A single texel in RGBAF32 texture - 16 bytes.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuBlockData {
@@ -114,6 +114,19 @@ impl<P> From<TypedRect<f32, P>> for GpuBlockData {
     }
 }
 
+impl<P> From<HomogeneousVector<f32, P>> for GpuBlockData {
+    fn from(v: HomogeneousVector<f32, P>) -> Self {
+        GpuBlockData {
+            data: [
+                v.x,
+                v.y,
+                v.z,
+                v.w,
+            ],
+        }
+    }
+}
+
 impl From<TexelRect> for GpuBlockData {
     fn from(tr: TexelRect) -> Self {
         GpuBlockData {
@@ -131,7 +144,7 @@ pub trait ToGpuBlocks {
 }
 
 // A handle to a GPU resource.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuCacheHandle {
@@ -147,7 +160,7 @@ impl GpuCacheHandle {
 // A unique address in the GPU cache. These are uploaded
 // as part of the primitive instances, to allow the vertex
 // shader to fetch the specific data.
-#[derive(Copy, Debug, Clone, Eq, PartialEq)]
+#[derive(Copy, Debug, Clone, MallocSizeOf, Eq, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuCacheAddress {
@@ -183,7 +196,7 @@ impl Add<usize> for GpuCacheAddress {
 }
 
 // An entry in a free-list of blocks in the GPU cache.
-#[derive(Debug)]
+#[derive(Debug, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Block {
@@ -235,7 +248,7 @@ impl Block {
 ///
 /// Because we use Option<BlockIndex> in a lot of places, we use a NonZeroU32
 /// here and avoid ever using the index zero.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct BlockIndex(NonZeroU32);
@@ -254,6 +267,7 @@ impl BlockIndex {
 // A row in the cache texture.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf)]
 struct Row {
     // The fixed size of blocks that this row supports.
     // Each row becomes a slab allocator for a fixed block size.
@@ -276,6 +290,7 @@ impl Row {
 // where GL commands can be applied.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf)]
 pub enum GpuCacheUpdate {
     Copy {
         block_index: usize,
@@ -286,6 +301,7 @@ pub enum GpuCacheUpdate {
 
 /// Command to inform the debug display in the renderer when chunks are allocated
 /// or freed.
+#[derive(MallocSizeOf)]
 pub enum GpuCacheDebugCmd {
     /// Describes an allocated chunk.
     Alloc(GpuCacheDebugChunk),
@@ -293,7 +309,7 @@ pub enum GpuCacheDebugCmd {
     Free(GpuCacheAddress),
 }
 
-#[derive(Clone)]
+#[derive(Clone, MallocSizeOf)]
 pub struct GpuCacheDebugChunk {
     pub address: GpuCacheAddress,
     pub size: usize,
@@ -302,6 +318,7 @@ pub struct GpuCacheDebugChunk {
 #[must_use]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf)]
 pub struct GpuCacheUpdateList {
     /// The frame current update list was generated from.
     pub frame_id: FrameId,
@@ -325,6 +342,7 @@ pub struct GpuCacheUpdateList {
 // just serves to work around the borrow checker.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf)]
 struct FreeBlockLists {
     free_list_1: Option<BlockIndex>,
     free_list_2: Option<BlockIndex>,
@@ -392,6 +410,7 @@ impl FreeBlockLists {
 // CPU-side representation of the GPU resource cache texture.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf)]
 struct Texture {
     // Current texture height
     height: i32,
@@ -454,18 +473,6 @@ impl Texture {
             debug_commands: Vec::new(),
             debug_flags,
         }
-    }
-
-    // Reports the CPU heap usage of this Texture struct.
-    fn malloc_size_of(&self, op: VoidPtrToSizeFn) -> usize {
-        let mut size = 0;
-        unsafe {
-            size += op(self.blocks.as_ptr() as *const c_void);
-            size += op(self.rows.as_ptr() as *const c_void);
-            size += op(self.pending_blocks.as_ptr() as *const c_void);
-            size += op(self.updates.as_ptr() as *const c_void);
-        }
-        size
     }
 
     // Push new data into the cache. The ```pending_block_index``` field represents
@@ -672,6 +679,7 @@ impl<'a> Drop for GpuDataRequest<'a> {
 /// The main LRU cache interface.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf)]
 pub struct GpuCache {
     /// Current FrameId.
     now: FrameStamp,
@@ -702,7 +710,7 @@ impl GpuCache {
     /// Creates a GpuCache and sets it up with a valid `FrameStamp`, which
     /// is useful for avoiding panics when instantiating the `GpuCache`
     /// directly from unit test code.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_for_testing() -> Self {
         let mut cache = Self::new();
         let mut now = FrameStamp::first(DocumentId(IdNamespace(1), 1));
@@ -864,11 +872,6 @@ impl GpuCache {
         debug_assert_eq!(block.epoch, location.epoch);
         debug_assert_eq!(block.last_access_time, self.now.frame_id());
         block.address
-    }
-
-    /// Reports the CPU heap usage of this GpuCache struct.
-    pub fn malloc_size_of(&self, op: VoidPtrToSizeFn) -> usize {
-        self.texture.malloc_size_of(op)
     }
 }
 

@@ -20,6 +20,11 @@
 
 class nsGlobalWindowOuter;
 class nsOuterWindowProxy;
+class PickleIterator;
+
+namespace IPC {
+class Message;
+}  // namespace IPC
 
 namespace mozilla {
 
@@ -27,9 +32,17 @@ class ErrorResult;
 class LogModule;
 class OOMReporter;
 
+namespace ipc {
+class IProtocol;
+
+template <typename T>
+struct IPDLParamTraits;
+}  // namespace ipc
+
 namespace dom {
 
-class BrowsingContext;
+class BrowsingContextGroup;
+class CanonicalBrowsingContext;
 class ContentParent;
 template <typename>
 struct Nullable;
@@ -37,14 +50,6 @@ template <typename T>
 class Sequence;
 struct WindowPostMessageOptions;
 class WindowProxyHolder;
-
-// List of top-level or auxiliary BrowsingContexts
-class BrowsingContextGroup : public nsTArray<WeakPtr<BrowsingContext>> {
- public:
-  NS_INLINE_DECL_REFCOUNTING(BrowsingContextGroup)
- private:
-  ~BrowsingContextGroup() {}
-};
 
 // BrowsingContext, in this context, is the cross process replicated
 // environment in which information about documents is stored. In
@@ -74,6 +79,9 @@ class BrowsingContext : public nsWrapperCache,
 
   // Look up a BrowsingContext in the current process by ID.
   static already_AddRefed<BrowsingContext> Get(uint64_t aId);
+  static already_AddRefed<BrowsingContext> Get(GlobalObject&, uint64_t aId) {
+    return Get(aId);
+  }
 
   // Create a brand-new BrowsingContext object.
   static already_AddRefed<BrowsingContext> Create(BrowsingContext* aParent,
@@ -85,6 +93,9 @@ class BrowsingContext : public nsWrapperCache,
   static already_AddRefed<BrowsingContext> CreateFromIPC(
       BrowsingContext* aParent, BrowsingContext* aOpener,
       const nsAString& aName, uint64_t aId, ContentParent* aOriginProcess);
+
+  // Cast this object to a canonical browsing context, and return it.
+  CanonicalBrowsingContext* Canonical();
 
   // Get the DocShell for this BrowsingContext if it is in-process, or
   // null if it's not.
@@ -119,6 +130,7 @@ class BrowsingContext : public nsWrapperCache,
   // process. [Bug 1490303]
   void SetName(const nsAString& aName) { mName = aName; }
   const nsString& Name() const { return mName; }
+  void GetName(nsAString& aName) { aName = mName; }
   bool NameEquals(const nsAString& aName) { return mName.Equals(aName); }
 
   bool IsContent() const { return mType == Type::Content; }
@@ -133,12 +145,46 @@ class BrowsingContext : public nsWrapperCache,
 
   void SetOpener(BrowsingContext* aOpener);
 
-  static void GetRootBrowsingContexts(
-      nsTArray<RefPtr<BrowsingContext>>& aBrowsingContexts);
+  BrowsingContextGroup* Group() { return mGroup; }
+
+  // Using the rules for choosing a browsing context we try to find
+  // the browsing context with the given name in the set of
+  // transitively reachable browsing contexts. Performs access control
+  // with regards to this.
+  // See
+  // https://html.spec.whatwg.org/multipage/browsers.html#the-rules-for-choosing-a-browsing-context-given-a-browsing-context-name.
+  //
+  // BrowsingContext::FindWithName(const nsAString&) is equivalent to
+  // calling nsIDocShellTreeItem::FindItemWithName(aName, nullptr,
+  // nullptr, false, <return value>).
+  BrowsingContext* FindWithName(const nsAString& aName);
+
+  // Find a browsing context in this context's list of
+  // children. Doesn't consider the special names, '_self', '_parent',
+  // '_top', or '_blank'. Performs access control with regard to
+  // 'this'.
+  BrowsingContext* FindChildWithName(const nsAString& aName);
 
   nsISupports* GetParentObject() const;
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
+
+  // This function would be called when its corresponding document is activated
+  // by user gesture, and we would set the flag in the top level browsing
+  // context.
+  void NotifyUserGestureActivation();
+
+  // This function would be called when we want to reset the user gesture
+  // activation flag of the top level browsing context.
+  void NotifyResetUserGestureActivation();
+
+  // These functions would only be called in the top level browsing context.
+  // They would set/reset the user gesture activation flag.
+  void SetUserGestureActivation();
+  void ResetUserGestureActivation();
+
+  // Return true if it corresponding document is activated by user gesture.
+  bool GetUserGestureActivation();
 
   // Return the window proxy object that corresponds to this browsing context.
   inline JSObject* GetWindowProxy() const { return mWindowProxy; }
@@ -177,8 +223,6 @@ class BrowsingContext : public nsWrapperCache,
                       const WindowPostMessageOptions& aOptions,
                       nsIPrincipal& aSubjectPrincipal, ErrorResult& aError);
 
-  already_AddRefed<BrowsingContext> FindChildWithName(const nsAString& aName);
-
   JSObject* WrapObject(JSContext* aCx);
 
  protected:
@@ -188,6 +232,22 @@ class BrowsingContext : public nsWrapperCache,
                   Type aType);
 
  private:
+  // Find the special browsing context if aName is '_self', '_parent',
+  // '_top', but not '_blank'. The latter is handled in FindWithName
+  BrowsingContext* FindWithSpecialName(const nsAString& aName);
+
+  // Find a browsing context in the subtree rooted at 'this' Doesn't
+  // consider the special names, '_self', '_parent', '_top', or
+  // '_blank'. Performs access control with regard to
+  // 'aRequestingContext'.
+  BrowsingContext* FindWithNameInSubtree(const nsAString& aName,
+                                         BrowsingContext* aRequestingContext);
+
+  // Performs access control to check that 'this' can access 'aContext'.
+  bool CanAccess(BrowsingContext* aContext);
+
+  bool IsActive() const;
+
   friend class ::nsOuterWindowProxy;
   friend class ::nsGlobalWindowOuter;
   // Update the window proxy object that corresponds to this browsing context.
@@ -204,13 +264,15 @@ class BrowsingContext : public nsWrapperCache,
   // reach its browsing context anymore.
   void ClearWindowProxy() { mWindowProxy = nullptr; }
 
+  BrowsingContext* TopLevelBrowsingContext();
+
   // Type of BrowsingContent
   const Type mType;
 
   // Unique id identifying BrowsingContext
   const uint64_t mBrowsingContextId;
 
-  RefPtr<BrowsingContextGroup> mBrowsingContextGroup;
+  RefPtr<BrowsingContextGroup> mGroup;
   RefPtr<BrowsingContext> mParent;
   Children mChildren;
   WeakPtr<BrowsingContext> mOpener;
@@ -222,6 +284,10 @@ class BrowsingContext : public nsWrapperCache,
   // objectMoved hook and clear it from its finalize hook.
   JS::Heap<JSObject*> mWindowProxy;
   bool mClosed;
+
+  // This flag is only valid in the top level browsing context, it indicates
+  // whether the corresponding document has been activated by user gesture.
+  bool mIsActivatedByUserGesture;
 };
 
 /**
@@ -237,6 +303,17 @@ extern bool GetRemoteOuterWindowProxy(JSContext* aCx, BrowsingContext* aContext,
                                       JS::MutableHandle<JSObject*> aRetVal);
 
 }  // namespace dom
+
+// Allow sending BrowsingContext objects over IPC.
+namespace ipc {
+template <>
+struct IPDLParamTraits<dom::BrowsingContext> {
+  static void Write(IPC::Message* aMsg, IProtocol* aActor,
+                    dom::BrowsingContext* aParam);
+  static bool Read(const IPC::Message* aMsg, PickleIterator* aIter,
+                   IProtocol* aActor, RefPtr<dom::BrowsingContext>* aResult);
+};
+}  // namespace ipc
 }  // namespace mozilla
 
 #endif  // !defined(mozilla_dom_BrowsingContext_h)

@@ -72,8 +72,8 @@ class JSFunction : public js::NativeObject {
                    self-hosted code only. */
     HAS_INFERRED_NAME = 0x0100, /* function had no explicit name, but a name was
                                    set by SetFunctionName at compile time or
-                                   SetFunctionNameIfNoOwnName at runtime. See
-                                   atom_ for more info about this flag. */
+                                   SetFunctionName at runtime. See atom_ for
+                                   more info about this flag. */
     INTERPRETED_LAZY =
         0x0200, /* function is interpreted but doesn't have a script yet */
     RESOLVED_LENGTH =
@@ -184,8 +184,7 @@ class JSFunction : public js::NativeObject {
   //      guessed name was set.
   //   f. HAS_INFERRED_NAME can be set for cloned singleton function, even
   //      though the clone shouldn't receive an inferred name. See the
-  //      comments in NewFunctionClone() and SetFunctionNameIfNoOwnName()
-  //      for details.
+  //      comments in NewFunctionClone() and SetFunctionName() for details.
   //
   // 2. If the function is a bound function:
   //   a. To store the initial value of the "name" property.
@@ -224,13 +223,16 @@ class JSFunction : public js::NativeObject {
   bool needsNamedLambdaEnvironment() const;
 
   bool needsFunctionEnvironmentObjects() const {
-    return needsCallObject() || needsNamedLambdaEnvironment();
+    bool res = nonLazyScript()->needsFunctionEnvironmentObjects();
+    MOZ_ASSERT(res == (needsCallObject() || needsNamedLambdaEnvironment()));
+    return res;
   }
 
   bool needsSomeEnvironmentObject() const {
     return needsFunctionEnvironmentObjects() || needsExtraBodyVarEnvironment();
   }
 
+  static constexpr size_t NArgsBits = sizeof(nargs_) * CHAR_BIT;
   size_t nargs() const { return nargs_; }
 
   uint16_t flags() const { return flags_; }
@@ -895,9 +897,8 @@ extern JSAtom* IdToFunctionName(
     JSContext* cx, HandleId id,
     FunctionPrefixKind prefixKind = FunctionPrefixKind::None);
 
-extern bool SetFunctionNameIfNoOwnName(JSContext* cx, HandleFunction fun,
-                                       HandleValue name,
-                                       FunctionPrefixKind prefixKind);
+extern bool SetFunctionName(JSContext* cx, HandleFunction fun, HandleValue name,
+                            FunctionPrefixKind prefixKind);
 
 extern JSFunction* DefineFunction(
     JSContext* cx, HandleObject obj, HandleId id, JSNative native,
@@ -971,8 +972,8 @@ extern JSFunction* CloneFunctionReuseScript(
 // Functions whose scripts are cloned are always given singleton types.
 extern JSFunction* CloneFunctionAndScript(
     JSContext* cx, HandleFunction fun, HandleObject parent,
-    HandleScope newScope, gc::AllocKind kind = gc::AllocKind::FUNCTION,
-    HandleObject proto = nullptr);
+    HandleScope newScope, Handle<ScriptSourceObject*> sourceObject,
+    gc::AllocKind kind = gc::AllocKind::FUNCTION, HandleObject proto = nullptr);
 
 extern JSFunction* CloneAsmJSModuleFunction(JSContext* cx, HandleFunction fun);
 

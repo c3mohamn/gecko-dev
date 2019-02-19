@@ -309,8 +309,24 @@ SharedSurfacesChild::AsSourceSurfaceSharedData(SourceSurface* aSurface) {
 }
 
 /* static */ nsresult SharedSurfacesChild::Share(
-    ImageContainer* aContainer, RenderRootStateManager* aManager,
+    SourceSurface* aSurface, RenderRootStateManager* aManager,
     wr::IpcResourceUpdateQueue& aResources, wr::ImageKey& aKey) {
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(aSurface);
+  MOZ_ASSERT(aManager);
+
+  auto sharedSurface = AsSourceSurfaceSharedData(aSurface);
+  if (!sharedSurface) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  return Share(sharedSurface, aManager, aResources, aKey);
+}
+
+/* static */ nsresult SharedSurfacesChild::Share(
+    ImageContainer* aContainer, RenderRootStateManager* aManager,
+    wr::IpcResourceUpdateQueue& aResources, wr::ImageKey& aKey,
+    ContainerProducerID aProducerId) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aContainer);
   MOZ_ASSERT(aManager);
@@ -323,6 +339,15 @@ SharedSurfacesChild::AsSourceSurfaceSharedData(SourceSurface* aSurface) {
   aContainer->GetCurrentImages(&images);
   if (images.IsEmpty()) {
     return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  if (aProducerId != kContainerProducerID_Invalid &&
+      images[0].mProducerID != aProducerId) {
+    // If the producer ID of the surface in the container does not match the
+    // expected producer ID, then we do not want to proceed with sharing. This
+    // is useful for when callers are unsure if given container is for the same
+    // producer / underlying image request.
+    return NS_ERROR_FAILURE;
   }
 
   RefPtr<gfx::SourceSurface> surface = images[0].mImage->GetAsSourceSurface();

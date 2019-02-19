@@ -105,19 +105,6 @@ sidebarheader {
   text-shadow: 1px 1px 1.5px black;
 }
 
-.inset {
-  border: 1px solid ThreeDShadow;
-  border-right-color: ThreeDHighlight;
-  border-bottom-color: ThreeDHighlight;
-  margin: 0 5px 5px;
-}
-
-.outset {
-  border: 1px solid ThreeDShadow;
-  border-left-color: ThreeDHighlight;
-  border-top-color: ThreeDHighlight;
-}
-
 separator:not([orient="vertical"]) {
   height: 1.5em;
 }
@@ -177,20 +164,12 @@ label[disabled="true"] {
   font-weight: bold;
 }
 
-.monospace {
-  font-family: monospace;
-}
-
 .indent {
   margin-inline-start: 23px;
 }
 
 .box-padded {
   padding: 5px;
-}
-
-.spaced {
-  margin: 3px 5px 4px;
 }
 
 .text-link {

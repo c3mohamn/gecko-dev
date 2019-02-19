@@ -68,7 +68,7 @@
 #include "nsIPropertyBag2.h"     // for the 64-bit content length
 
 #ifdef XP_MACOSX
-#include "nsILocalFileMac.h"
+#  include "nsILocalFileMac.h"
 #endif
 
 #include "nsIPluginHost.h"  // XXX needed for ext->type mapping (bug 233289)
@@ -98,11 +98,11 @@
 #include "ExternalHelperAppChild.h"
 
 #ifdef XP_WIN
-#include "nsWindowsHelpers.h"
+#  include "nsWindowsHelpers.h"
 #endif
 
 #ifdef MOZ_WIDGET_ANDROID
-#include "FennecJNIWrappers.h"
+#  include "FennecJNIWrappers.h"
 #endif
 
 #include "mozilla/Preferences.h"
@@ -344,7 +344,7 @@ static nsresult GetDownloadDirectory(nsIFile** _directory,
   nsresult rv = NS_GetSpecialDirectory(NS_OS_TEMP_DIR, getter_AddRefs(dir));
   NS_ENSURE_SUCCESS(rv, rv);
 
-#if defined(XP_UNIX)
+#  if defined(XP_UNIX)
   // Ensuring that only the current user can read the file names we end up
   // creating. Note that Creating directories with specified permission only
   // supported on Unix platform right now. That's why above if exists.
@@ -412,7 +412,7 @@ static nsresult GetDownloadDirectory(nsIFile** _directory,
     }
   }
 
-#endif
+#  endif
 #endif
 
   NS_ASSERTION(dir, "Somehow we didn't get a download directory!");
@@ -488,9 +488,9 @@ struct nsExtraMimeTypeEntry {
 };
 
 #ifdef XP_MACOSX
-#define MAC_TYPE(x) x
+#  define MAC_TYPE(x) x
 #else
-#define MAC_TYPE(x) 0
+#  define MAC_TYPE(x) 0
 #endif
 
 /**
@@ -557,7 +557,8 @@ static const nsExtraMimeTypeEntry extraMimeEntries[] = {
     {AUDIO_WAV, "wav", "Waveform Audio"},
     {VIDEO_3GPP, "3gpp,3gp", "3GPP Video"},
     {VIDEO_3GPP2, "3g2", "3GPP2 Video"},
-    {AUDIO_MIDI, "mid", "Standard MIDI Audio"}};
+    {AUDIO_MIDI, "mid", "Standard MIDI Audio"},
+    {APPLICATION_WASM, "wasm", "WebAssembly Module"}};
 
 #undef MAC_TYPE
 
@@ -615,6 +616,7 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
   bool wasFileChannel = false;
   uint32_t contentDisposition = -1;
   nsAutoString fileName;
+  nsCOMPtr<nsILoadInfo> loadInfo;
 
   nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
   if (channel) {
@@ -623,6 +625,7 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
     channel->GetContentDisposition(&contentDisposition);
     channel->GetContentDispositionFilename(fileName);
     channel->GetContentDispositionHeader(disp);
+    loadInfo = channel->GetLoadInfo();
 
     nsCOMPtr<nsIFileChannel> fileChan(do_QueryInterface(aRequest));
     wasFileChannel = fileChan != nullptr;
@@ -635,14 +638,18 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
   SerializeURI(uri, uriParams);
   SerializeURI(referrer, referrerParams);
 
+  mozilla::net::OptionalLoadInfoArgs loadInfoArgs;
+  MOZ_ALWAYS_SUCCEEDS(LoadInfoToLoadInfoArgs(loadInfo, &loadInfoArgs));
+
   // Now we build a protocol for forwarding our data to the parent.  The
   // protocol will act as a listener on the child-side and create a "real"
   // helperAppService listener on the parent-side, via another call to
   // DoContent.
   mozilla::dom::PExternalHelperAppChild* pc =
       child->SendPExternalHelperAppConstructor(
-          uriParams, nsCString(aMimeContentType), disp, contentDisposition,
-          fileName, aForceSave, contentLength, wasFileChannel, referrerParams,
+          uriParams, loadInfoArgs, nsCString(aMimeContentType), disp,
+          contentDisposition, fileName, aForceSave, contentLength,
+          wasFileChannel, referrerParams,
           mozilla::dom::TabChild::GetFrom(window));
   ExternalHelperAppChild* childListener =
       static_cast<ExternalHelperAppChild*>(pc);

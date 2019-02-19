@@ -13,11 +13,14 @@ const {
   ADB_ADDON_UNINSTALL_FAILURE,
   ADB_ADDON_STATUS_UPDATED,
   DEBUG_TARGET_COLLAPSIBILITY_UPDATED,
+  HIDE_PROFILER_DIALOG,
   NETWORK_LOCATIONS_UPDATED,
   PAGE_TYPES,
   SELECT_PAGE_FAILURE,
   SELECT_PAGE_START,
   SELECT_PAGE_SUCCESS,
+  SELECTED_RUNTIME_ID_UPDATED,
+  SHOW_PROFILER_DIALOG,
   USB_RUNTIMES_SCAN_START,
   USB_RUNTIMES_SCAN_SUCCESS,
 } = require("../constants");
@@ -40,12 +43,19 @@ function selectPage(page, runtimeId) {
         return newPage === oldPage;
       };
 
+      if (!page) {
+        throw new Error("No page provided.");
+      }
+
       const currentPage = getState().ui.selectedPage;
-      // Nothing to dispatch if the page is the same as the current page, or
-      // if we are not providing any page.
-      // TODO: we should dispatch SELECT_PAGE_FAILURE if page is missing. See Bug 1518559.
-      if (!page || isSamePage(currentPage, page)) {
+      // Nothing to dispatch if the page is the same as the current page
+      if (isSamePage(currentPage, page)) {
         return;
+      }
+
+      // Stop showing the profiler dialog if we are navigating to another page.
+      if (getState().ui.showProfilerDialog) {
+        await dispatch({ type: HIDE_PROFILER_DIALOG });
       }
 
       // Stop watching current runtime, if currently on a RUNTIME page.
@@ -54,12 +64,20 @@ function selectPage(page, runtimeId) {
         await dispatch(Actions.unwatchRuntime(currentRuntimeId));
       }
 
+      // Always update the selected runtime id.
+      // If we are navigating to a non-runtime page, the Runtime page components are no
+      // longer rendered so it is safe to nullify the runtimeId.
+      // If we are navigating to a runtime page, the runtime corresponding to runtimeId
+      // is already connected, so components can safely get runtimeDetails on this new
+      // runtime.
+      dispatch({ type: SELECTED_RUNTIME_ID_UPDATED, runtimeId });
+
       // Start watching current runtime, if moving to a RUNTIME page.
       if (page === PAGE_TYPES.RUNTIME) {
         await dispatch(Actions.watchRuntime(runtimeId));
       }
 
-      dispatch({ type: SELECT_PAGE_SUCCESS, page, runtimeId });
+      dispatch({ type: SELECT_PAGE_SUCCESS, page });
     } catch (e) {
       dispatch({ type: SELECT_PAGE_FAILURE, error: e });
     }
@@ -80,6 +98,14 @@ function removeNetworkLocation(location) {
   return (dispatch, getState) => {
     NetworkLocationsModule.removeNetworkLocation(location);
   };
+}
+
+function showProfilerDialog() {
+  return { type: SHOW_PROFILER_DIALOG };
+}
+
+function hideProfilerDialog() {
+  return { type: HIDE_PROFILER_DIALOG };
 }
 
 function updateAdbAddonStatus(adbAddonStatus) {
@@ -136,10 +162,12 @@ function scanUSBRuntimes() {
 
 module.exports = {
   addNetworkLocation,
+  hideProfilerDialog,
   installAdbAddon,
   removeNetworkLocation,
   scanUSBRuntimes,
   selectPage,
+  showProfilerDialog,
   uninstallAdbAddon,
   updateAdbAddonStatus,
   updateDebugTargetCollapsibility,

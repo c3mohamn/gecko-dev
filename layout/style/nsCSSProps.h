@@ -165,6 +165,7 @@ class nsCSSProps {
 
   static nsCSSPropertyID Physicalize(nsCSSPropertyID aProperty,
                                      const mozilla::ComputedStyle& aStyle) {
+    MOZ_ASSERT(!IsShorthand(aProperty));
     if (PropHasFlags(aProperty, Flags::IsLogical)) {
       return Servo_ResolveLogicalProperty(aProperty, &aStyle);
     }
@@ -312,8 +313,6 @@ class nsCSSProps {
   static const KTableEntry kTextOverflowKTable[];
   static const KTableEntry kTouchActionKTable[];
   static const KTableEntry kVerticalAlignKTable[];
-  static const KTableEntry kWidthKTable[];  // also min-width, max-width
-  static const KTableEntry kFlexBasisKTable[];
 };
 
 #endif /* nsCSSProps_h___ */

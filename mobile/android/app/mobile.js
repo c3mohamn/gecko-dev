@@ -72,7 +72,6 @@ pref("browser.cache.disk.enable", true);
 pref("browser.cache.disk.capacity", 20480); // kilobytes
 pref("browser.cache.disk.max_entry_size", 4096); // kilobytes
 pref("browser.cache.disk.smart_size.enabled", true);
-pref("browser.cache.disk.smart_size.first_run", true);
 
 pref("browser.cache.memory.enable", true);
 pref("browser.cache.memory.capacity", 1024); // kilobytes
@@ -185,7 +184,7 @@ pref("dom.forms.datetime.others", true);
 /* extension manager and xpinstall */
 pref("xpinstall.whitelist.directRequest", false);
 pref("xpinstall.whitelist.fileRequest", false);
-pref("xpinstall.whitelist.add", "https://addons.mozilla.org,https://testpilot.firefox.com");
+pref("xpinstall.whitelist.add", "https://addons.mozilla.org");
 
 pref("extensions.langpacks.signatures.required", true);
 pref("xpinstall.signatures.required", true);
@@ -381,14 +380,6 @@ pref("browser.ui.zoom.force-user-scalable", false);
 // With the typical screen sizes on mobile devices, we want to wrap page sources by default.
 pref("view_source.wrap_long_lines", true);
 
-// When removing this Nightly flag, also remember to remove the flags surrounding this feature
-// in GeckoPreferences and BrowserApp (see bug 1245930).
-#ifdef NIGHTLY_BUILD
-pref("ui.bookmark.mobilefolder.enabled", true);
-#else
-pref("ui.bookmark.mobilefolder.enabled", false);
-#endif
-
 
 pref("ui.touch.radius.enabled", false);
 pref("ui.touch.radius.leftmm", 3);
@@ -581,15 +572,10 @@ pref("media.mediasource.enabled", true);
 
 pref("media.mediadrm-widevinecdm.visible", true);
 
-#ifdef NIGHTLY_BUILD
 // Switch block autoplay logic to v2.
 pref("media.autoplay.enabled.user-gestures-needed", true);
 // Set Fennec to block autoplay by default.
 pref("media.autoplay.default", 1); // 0=Allowed, 1=Blocked
-#else
-pref("media.autoplay.default", 0); // 0=Allowed, 1=Blocked
-pref("media.autoplay.enabled.user-gestures-needed", false);
-#endif
 
 // Enable WebSpeech speech synthesis
 pref("media.webspeech.synth.enabled", true);

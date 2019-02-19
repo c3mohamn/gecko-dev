@@ -331,20 +331,6 @@ exports.CSS_PROPERTIES = {
       "visible"
     ]
   },
-  "-moz-binding": {
-    "isInherited": false,
-    "subproperties": [
-      "-moz-binding"
-    ],
-    "supports": [],
-    "values": [
-      "inherit",
-      "initial",
-      "none",
-      "unset",
-      "url"
-    ]
-  },
   "-moz-border-end": {
     "isInherited": false,
     "subproperties": [
@@ -2857,14 +2843,26 @@ exports.CSS_PROPERTIES = {
       "border-inline-end-color",
       "border-inline-end-style",
       "border-inline-end-width",
+      "border-start-start-radius",
+      "border-start-end-radius",
+      "border-end-start-radius",
+      "border-end-end-radius",
       "margin-block-start",
       "margin-block-end",
       "margin-inline-start",
       "margin-inline-end",
+      "scroll-margin-block-start",
+      "scroll-margin-block-end",
+      "scroll-margin-inline-start",
+      "scroll-margin-inline-end",
       "padding-block-start",
       "padding-block-end",
       "padding-inline-start",
       "padding-inline-end",
+      "scroll-padding-block-start",
+      "scroll-padding-block-end",
+      "scroll-padding-inline-start",
+      "scroll-padding-inline-end",
       "inset-block-start",
       "inset-block-end",
       "inset-inline-start",
@@ -2940,6 +2938,7 @@ exports.CSS_PROPERTIES = {
       "translate",
       "offset-path",
       "scroll-behavior",
+      "scroll-snap-align",
       "scroll-snap-type-x",
       "scroll-snap-type-y",
       "overscroll-behavior-x",
@@ -3072,6 +3071,10 @@ exports.CSS_PROPERTIES = {
       "margin-right",
       "margin-bottom",
       "margin-left",
+      "scroll-margin-top",
+      "scroll-margin-right",
+      "scroll-margin-bottom",
+      "scroll-margin-left",
       "outline-color",
       "outline-style",
       "outline-width",
@@ -3084,6 +3087,10 @@ exports.CSS_PROPERTIES = {
       "padding-right",
       "padding-bottom",
       "padding-left",
+      "scroll-padding-top",
+      "scroll-padding-right",
+      "scroll-padding-bottom",
+      "scroll-padding-left",
       "top",
       "right",
       "bottom",
@@ -3684,6 +3691,67 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "border-block": {
+    "isInherited": false,
+    "subproperties": [
+      "border-block-start-width",
+      "border-block-end-width",
+      "border-block-start-style",
+      "border-block-end-style",
+      "border-block-start-color",
+      "border-block-end-color"
+    ],
+    "supports": [
+      2
+    ],
+    "values": [
+      "COLOR",
+      "currentColor",
+      "dashed",
+      "dotted",
+      "double",
+      "groove",
+      "hidden",
+      "hsl",
+      "hsla",
+      "inherit",
+      "initial",
+      "inset",
+      "medium",
+      "none",
+      "outset",
+      "rgb",
+      "rgba",
+      "ridge",
+      "solid",
+      "thick",
+      "thin",
+      "transparent",
+      "unset"
+    ]
+  },
+  "border-block-color": {
+    "isInherited": false,
+    "subproperties": [
+      "border-block-start-color",
+      "border-block-end-color"
+    ],
+    "supports": [
+      2
+    ],
+    "values": [
+      "COLOR",
+      "currentColor",
+      "hsl",
+      "hsla",
+      "inherit",
+      "initial",
+      "rgb",
+      "rgba",
+      "transparent",
+      "unset"
+    ]
+  },
   "border-block-end": {
     "isInherited": false,
     "subproperties": [
@@ -3872,6 +3940,45 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "border-block-style": {
+    "isInherited": false,
+    "subproperties": [
+      "border-block-start-style",
+      "border-block-end-style"
+    ],
+    "supports": [],
+    "values": [
+      "dashed",
+      "dotted",
+      "double",
+      "groove",
+      "hidden",
+      "inherit",
+      "initial",
+      "inset",
+      "none",
+      "outset",
+      "ridge",
+      "solid",
+      "unset"
+    ]
+  },
+  "border-block-width": {
+    "isInherited": false,
+    "subproperties": [
+      "border-block-start-width",
+      "border-block-end-width"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "medium",
+      "thick",
+      "thin",
+      "unset"
+    ]
+  },
   "border-bottom": {
     "isInherited": false,
     "subproperties": [
@@ -4028,6 +4135,30 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "border-end-end-radius": {
+    "isInherited": false,
+    "subproperties": [
+      "border-end-end-radius"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "border-end-start-radius": {
+    "isInherited": false,
+    "subproperties": [
+      "border-end-start-radius"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
   "border-image": {
     "isInherited": false,
     "subproperties": [
@@ -4151,6 +4282,67 @@ exports.CSS_PROPERTIES = {
       "auto",
       "inherit",
       "initial",
+      "unset"
+    ]
+  },
+  "border-inline": {
+    "isInherited": false,
+    "subproperties": [
+      "border-inline-start-width",
+      "border-inline-end-width",
+      "border-inline-start-style",
+      "border-inline-end-style",
+      "border-inline-start-color",
+      "border-inline-end-color"
+    ],
+    "supports": [
+      2
+    ],
+    "values": [
+      "COLOR",
+      "currentColor",
+      "dashed",
+      "dotted",
+      "double",
+      "groove",
+      "hidden",
+      "hsl",
+      "hsla",
+      "inherit",
+      "initial",
+      "inset",
+      "medium",
+      "none",
+      "outset",
+      "rgb",
+      "rgba",
+      "ridge",
+      "solid",
+      "thick",
+      "thin",
+      "transparent",
+      "unset"
+    ]
+  },
+  "border-inline-color": {
+    "isInherited": false,
+    "subproperties": [
+      "border-inline-start-color",
+      "border-inline-end-color"
+    ],
+    "supports": [
+      2
+    ],
+    "values": [
+      "COLOR",
+      "currentColor",
+      "hsl",
+      "hsla",
+      "inherit",
+      "initial",
+      "rgb",
+      "rgba",
+      "transparent",
       "unset"
     ]
   },
@@ -4331,6 +4523,45 @@ exports.CSS_PROPERTIES = {
     "isInherited": false,
     "subproperties": [
       "border-inline-start-width"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "medium",
+      "thick",
+      "thin",
+      "unset"
+    ]
+  },
+  "border-inline-style": {
+    "isInherited": false,
+    "subproperties": [
+      "border-inline-start-style",
+      "border-inline-end-style"
+    ],
+    "supports": [],
+    "values": [
+      "dashed",
+      "dotted",
+      "double",
+      "groove",
+      "hidden",
+      "inherit",
+      "initial",
+      "inset",
+      "none",
+      "outset",
+      "ridge",
+      "solid",
+      "unset"
+    ]
+  },
+  "border-inline-width": {
+    "isInherited": false,
+    "subproperties": [
+      "border-inline-start-width",
+      "border-inline-end-width"
     ],
     "supports": [],
     "values": [
@@ -4549,6 +4780,30 @@ exports.CSS_PROPERTIES = {
     "isInherited": true,
     "subproperties": [
       "border-spacing"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "border-start-end-radius": {
+    "isInherited": false,
+    "subproperties": [
+      "border-start-end-radius"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "border-start-start-radius": {
+    "isInherited": false,
+    "subproperties": [
+      "border-start-start-radius"
     ],
     "supports": [],
     "values": [
@@ -6445,6 +6700,36 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "inset": {
+    "isInherited": false,
+    "subproperties": [
+      "top",
+      "right",
+      "bottom",
+      "left"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "inset-block": {
+    "isInherited": false,
+    "subproperties": [
+      "inset-block-start",
+      "inset-block-end"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
   "inset-block-end": {
     "isInherited": false,
     "subproperties": [
@@ -6462,6 +6747,20 @@ exports.CSS_PROPERTIES = {
     "isInherited": false,
     "subproperties": [
       "inset-block-start"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "inset-inline": {
+    "isInherited": false,
+    "subproperties": [
+      "inset-inline-start",
+      "inset-inline-end"
     ],
     "supports": [],
     "values": [
@@ -6843,6 +7142,20 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "margin-block": {
+    "isInherited": false,
+    "subproperties": [
+      "margin-block-start",
+      "margin-block-end"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
   "margin-block-end": {
     "isInherited": false,
     "subproperties": [
@@ -6873,6 +7186,20 @@ exports.CSS_PROPERTIES = {
     "isInherited": false,
     "subproperties": [
       "margin-bottom"
+    ],
+    "supports": [],
+    "values": [
+      "auto",
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "margin-inline": {
+    "isInherited": false,
+    "subproperties": [
+      "margin-inline-start",
+      "margin-inline-end"
     ],
     "supports": [],
     "values": [
@@ -7768,6 +8095,19 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
+  "padding-block": {
+    "isInherited": false,
+    "subproperties": [
+      "padding-block-start",
+      "padding-block-end"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
   "padding-block-end": {
     "isInherited": false,
     "subproperties": [
@@ -7796,6 +8136,19 @@ exports.CSS_PROPERTIES = {
     "isInherited": false,
     "subproperties": [
       "padding-bottom"
+    ],
+    "supports": [],
+    "values": [
+      "inherit",
+      "initial",
+      "unset"
+    ]
+  },
+  "padding-inline": {
+    "isInherited": false,
+    "subproperties": [
+      "padding-inline-start",
+      "padding-inline-end"
     ],
     "supports": [],
     "values": [
@@ -9396,6 +9749,10 @@ exports.PREFERENCES = [
     "layout.css.scroll-anchoring.enabled"
   ],
   [
+    "scroll-snap-align",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
     "scrollbar-width",
     "layout.css.scrollbar-width.enabled"
   ],
@@ -9476,6 +9833,74 @@ exports.PREFERENCES = [
     "layout.css.scroll-snap.enabled"
   ],
   [
+    "-moz-binding",
+    "layout.css.moz-binding.content.enabled"
+  ],
+  [
+    "scroll-padding-block-end",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-block-start",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-bottom",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-inline-end",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-inline-start",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-left",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-right",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-top",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-block-end",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-block-start",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-bottom",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-inline-end",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-inline-start",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-left",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-right",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-top",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
     "-webkit-text-stroke-width",
     "layout.css.prefixes.webkit"
   ],
@@ -9502,6 +9927,30 @@ exports.PREFERENCES = [
   [
     "-webkit-text-stroke",
     "layout.css.prefixes.webkit"
+  ],
+  [
+    "scroll-margin",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-block",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-margin-inline",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-block",
+    "layout.css.scroll-snap-v1.enabled"
+  ],
+  [
+    "scroll-padding-inline",
+    "layout.css.scroll-snap-v1.enabled"
   ],
   [
     "-webkit-background-clip",

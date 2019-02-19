@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 ChromeUtils.defineModuleGetter(this, "AppConstants",
   "resource://gre/modules/AppConstants.jsm");
@@ -12,24 +12,24 @@ ChromeUtils.defineModuleGetter(this, "UpdateUtils",
 
 // NB: Eagerly load modules that will be loaded/constructed/initialized in the
 // common case to avoid the overhead of wrapping and detecting lazy loading.
-const {actionCreators: ac, actionTypes: at} = ChromeUtils.import("resource://activity-stream/common/Actions.jsm", {});
-const {AboutPreferences} = ChromeUtils.import("resource://activity-stream/lib/AboutPreferences.jsm", {});
-const {DefaultPrefs} = ChromeUtils.import("resource://activity-stream/lib/ActivityStreamPrefs.jsm", {});
-const {ManualMigration} = ChromeUtils.import("resource://activity-stream/lib/ManualMigration.jsm", {});
-const {NewTabInit} = ChromeUtils.import("resource://activity-stream/lib/NewTabInit.jsm", {});
-const {SectionsFeed} = ChromeUtils.import("resource://activity-stream/lib/SectionsManager.jsm", {});
-const {PlacesFeed} = ChromeUtils.import("resource://activity-stream/lib/PlacesFeed.jsm", {});
-const {PrefsFeed} = ChromeUtils.import("resource://activity-stream/lib/PrefsFeed.jsm", {});
-const {Store} = ChromeUtils.import("resource://activity-stream/lib/Store.jsm", {});
-const {SnippetsFeed} = ChromeUtils.import("resource://activity-stream/lib/SnippetsFeed.jsm", {});
-const {SystemTickFeed} = ChromeUtils.import("resource://activity-stream/lib/SystemTickFeed.jsm", {});
-const {TelemetryFeed} = ChromeUtils.import("resource://activity-stream/lib/TelemetryFeed.jsm", {});
-const {FaviconFeed} = ChromeUtils.import("resource://activity-stream/lib/FaviconFeed.jsm", {});
-const {TopSitesFeed} = ChromeUtils.import("resource://activity-stream/lib/TopSitesFeed.jsm", {});
-const {TopStoriesFeed} = ChromeUtils.import("resource://activity-stream/lib/TopStoriesFeed.jsm", {});
-const {HighlightsFeed} = ChromeUtils.import("resource://activity-stream/lib/HighlightsFeed.jsm", {});
-const {ASRouterFeed} = ChromeUtils.import("resource://activity-stream/lib/ASRouterFeed.jsm", {});
-const {DiscoveryStreamFeed} = ChromeUtils.import("resource://activity-stream/lib/DiscoveryStreamFeed.jsm", {});
+const {actionCreators: ac, actionTypes: at} = ChromeUtils.import("resource://activity-stream/common/Actions.jsm");
+const {AboutPreferences} = ChromeUtils.import("resource://activity-stream/lib/AboutPreferences.jsm");
+const {DefaultPrefs} = ChromeUtils.import("resource://activity-stream/lib/ActivityStreamPrefs.jsm");
+const {ManualMigration} = ChromeUtils.import("resource://activity-stream/lib/ManualMigration.jsm");
+const {NewTabInit} = ChromeUtils.import("resource://activity-stream/lib/NewTabInit.jsm");
+const {SectionsFeed} = ChromeUtils.import("resource://activity-stream/lib/SectionsManager.jsm");
+const {PlacesFeed} = ChromeUtils.import("resource://activity-stream/lib/PlacesFeed.jsm");
+const {PrefsFeed} = ChromeUtils.import("resource://activity-stream/lib/PrefsFeed.jsm");
+const {Store} = ChromeUtils.import("resource://activity-stream/lib/Store.jsm");
+const {SnippetsFeed} = ChromeUtils.import("resource://activity-stream/lib/SnippetsFeed.jsm");
+const {SystemTickFeed} = ChromeUtils.import("resource://activity-stream/lib/SystemTickFeed.jsm");
+const {TelemetryFeed} = ChromeUtils.import("resource://activity-stream/lib/TelemetryFeed.jsm");
+const {FaviconFeed} = ChromeUtils.import("resource://activity-stream/lib/FaviconFeed.jsm");
+const {TopSitesFeed} = ChromeUtils.import("resource://activity-stream/lib/TopSitesFeed.jsm");
+const {TopStoriesFeed} = ChromeUtils.import("resource://activity-stream/lib/TopStoriesFeed.jsm");
+const {HighlightsFeed} = ChromeUtils.import("resource://activity-stream/lib/HighlightsFeed.jsm");
+const {ASRouterFeed} = ChromeUtils.import("resource://activity-stream/lib/ASRouterFeed.jsm");
+const {DiscoveryStreamFeed} = ChromeUtils.import("resource://activity-stream/lib/DiscoveryStreamFeed.jsm");
 
 const DEFAULT_SITES = new Map([
   // This first item is the global list fallback for any unexpected geos
@@ -183,7 +183,7 @@ const PREFS_CONFIG = new Map([
       } else {
         searchShortcuts.push("google");
       }
-      if (["AT", "DE", "FR", "GB", "IT", "JP", "US"].includes(geo)) {
+      if (["DE", "FR", "GB", "IT", "JP", "US"].includes(geo)) {
         searchShortcuts.push("amazon");
       }
       return searchShortcuts.join(",");
@@ -192,10 +192,6 @@ const PREFS_CONFIG = new Map([
   ["improvesearch.topSiteSearchShortcuts.havePinned", {
     title: "A comma-delimited list of search shortcuts that have previously been pinned",
     value: "",
-  }],
-  ["improvesearch.handoffToAwesomebar", {
-    title: "Should the search box handoff to the Awesomebar?",
-    value: true,
   }],
   ["asrouter.devtoolsEnabled", {
     title: "Are the asrouter devtools enabled?",
@@ -213,17 +209,44 @@ const PREFS_CONFIG = new Map([
       localProvider: "OnboardingMessageProvider",
       enabled: true,
       // Block specific messages from this local provider
-      exclude: ["RETURN_TO_AMO_1"],
+      exclude: [],
     }),
   }],
   // See browser/app/profile/firefox.js for other ASR preferences. They must be defined there to enable roll-outs.
   ["discoverystream.config", {
     title: "Configuration for the new pocket new tab",
-    value: JSON.stringify({
-      enabled: false,
-      // This is currently an exmple layout used for dev purposes.
-      layout_endpoint: "https://getpocket.com/v3/newtab/layout?version=1&consumer_key=40249-e88c401e1b1f2242d9e441c4&layout_variant=dev-test-1",
-    }),
+    getValue: ({geo, locale}) => {
+      const locales = ({
+        "US": ["en-CA", "en-GB", "en-US", "en-ZA"],
+        "CA": ["en-CA", "en-GB", "en-US", "en-ZA"],
+      })[geo];
+      const isEnabled = IS_NIGHTLY_OR_UNBRANDED_BUILD && locales && locales.includes(locale);
+      return JSON.stringify({
+        api_key_pref: "extensions.pocket.oAuthConsumerKey",
+        enabled: isEnabled,
+        show_spocs: geo === "US",
+        // This is currently an exmple layout used for dev purposes.
+        layout_endpoint: "https://getpocket.com/v3/newtab/layout?version=1&consumer_key=$apiKey&layout_variant=basic",
+      });
+    },
+  }],
+  ["discoverystream.optOut.0", {
+    title: "Opt out of new layout v0",
+    value: false,
+  }],
+  ["discoverystream.spoc.impressions", {
+    title: "Track spoc impressions",
+    skipBroadcast: true,
+    value: "{}",
+  }],
+  ["discoverystream.rec.impressions", {
+    title: "Track rec impressions",
+    skipBroadcast: true,
+    value: "{}",
+  }],
+  ["darkModeMessage", {
+    title: "Boolean flag that decides whether to show the dark Mode message or not.",
+    value: IS_NIGHTLY_OR_UNBRANDED_BUILD,
   }],
 ]);
 

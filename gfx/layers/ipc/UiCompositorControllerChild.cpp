@@ -16,7 +16,7 @@
 #include "nsThreadUtils.h"
 
 #if defined(MOZ_WIDGET_ANDROID)
-#include "mozilla/widget/AndroidUiThread.h"
+#  include "mozilla/widget/AndroidUiThread.h"
 
 static RefPtr<nsThread> GetUiThread() { return mozilla::GetAndroidUiThread(); }
 #else
@@ -178,6 +178,7 @@ void UiCompositorControllerChild::Destroy() {
 
   if (mIsOpen) {
     // Close the underlying IPC channel.
+    mWidget = nullptr;
     PUiCompositorControllerChild::Close();
     mIsOpen = false;
   }

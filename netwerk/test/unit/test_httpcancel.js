@@ -4,8 +4,8 @@
 // I've also shoehorned in a test that ENSURE_CALLED_BEFORE_CONNECT works as
 // expected: see comments that start with ENSURE_CALLED_BEFORE_CONNECT:
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var ios = Cc["@mozilla.org/network/io-service;1"]
             .getService(Ci.nsIIOService);
@@ -93,7 +93,7 @@ function execute_test() {
   obs = obs.QueryInterface(Ci.nsIObserverService);
   obs.addObserver(observer, "http-on-modify-request");
 
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function run_test() {

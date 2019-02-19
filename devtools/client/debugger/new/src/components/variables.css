@@ -3,7 +3,12 @@
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
 :root {
-  --icon-size: 13px;
+  /* header height is 28px + 1px for its border */
+  --editor-header-height: 29px;
+  /* footer height is 24px + 1px for its border */
+  --editor-footer-height: 25px;
+  /* searchbar height is 24px + 1px for its top border */
+  --editor-searchbar-height: 25px;
 }
 
 :root.theme-light,

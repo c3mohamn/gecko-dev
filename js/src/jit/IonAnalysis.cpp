@@ -2344,7 +2344,8 @@ static bool CanCompareRegExp(MCompare* compare, MDefinition* def) {
       value->mightBeType(MIRType::Int32) ||
       value->mightBeType(MIRType::Double) ||
       value->mightBeType(MIRType::Float32) ||
-      value->mightBeType(MIRType::Symbol)) {
+      value->mightBeType(MIRType::Symbol) ||
+      value->mightBeType(MIRType::BigInt)) {
     return false;
   }
 
@@ -2891,14 +2892,14 @@ static void CheckOperand(const MNode* consumer, const MUse* use,
   MOZ_ASSERT(!producer->isDiscarded());
   MOZ_ASSERT(producer->block() != nullptr);
   MOZ_ASSERT(use->consumer() == consumer);
-#ifdef _DEBUG_CHECK_OPERANDS_USES_BALANCE
+#  ifdef _DEBUG_CHECK_OPERANDS_USES_BALANCE
   Fprinter print(stderr);
   print.printf("==Check Operand\n");
   use->producer()->dump(print);
   print.printf("  index: %zu\n", use->consumer()->indexOf(use));
   use->consumer()->dump(print);
   print.printf("==End\n");
-#endif
+#  endif
   --*usesBalance;
 }
 
@@ -2909,14 +2910,14 @@ static void CheckUse(const MDefinition* producer, const MUse* use,
                 !use->consumer()->toDefinition()->isDiscarded());
   MOZ_ASSERT(use->consumer()->block() != nullptr);
   MOZ_ASSERT(use->consumer()->getOperand(use->index()) == producer);
-#ifdef _DEBUG_CHECK_OPERANDS_USES_BALANCE
+#  ifdef _DEBUG_CHECK_OPERANDS_USES_BALANCE
   Fprinter print(stderr);
   print.printf("==Check Use\n");
   use->producer()->dump(print);
   print.printf("  index: %zu\n", use->consumer()->indexOf(use));
   use->consumer()->dump(print);
   print.printf("==End\n");
-#endif
+#  endif
   ++*usesBalance;
 }
 
@@ -3176,6 +3177,7 @@ static bool IsResumableMIRType(MIRType type) {
     case MIRType::Float32:
     case MIRType::String:
     case MIRType::Symbol:
+    case MIRType::BigInt:
     case MIRType::Object:
     case MIRType::MagicOptimizedArguments:
     case MIRType::MagicOptimizedOut:
@@ -3202,6 +3204,7 @@ static bool IsResumableMIRType(MIRType type) {
     case MIRType::Doublex2:  // NYI, see also RSimdBox::recover
     case MIRType::SinCosDouble:
     case MIRType::Int64:
+    case MIRType::RefOrNull:
       return false;
   }
   MOZ_CRASH("Unknown MIRType.");

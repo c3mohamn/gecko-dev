@@ -9,7 +9,7 @@
 #include "jit/JitRealm.h"
 #include "jit/Linker.h"
 #ifdef JS_ION_PERF
-#include "jit/PerfSpewer.h"
+#  include "jit/PerfSpewer.h"
 #endif
 #include "jit/arm64/SharedICHelpers-arm64.h"
 #include "jit/VMFunctions.h"
@@ -649,9 +649,7 @@ bool JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
   }
 
   // SP is used to transfer stack across call boundaries.
-  if (!masm.GetStackPointer64().Is(vixl::sp)) {
-    masm.Mov(masm.GetStackPointer64(), vixl::sp);
-  }
+  masm.initPseudoStackPtr();
 
   // Test for failure.
   switch (f.failType()) {

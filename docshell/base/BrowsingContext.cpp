@@ -6,7 +6,8 @@
 
 #include "mozilla/dom/BrowsingContext.h"
 
-#include "mozilla/dom/ChromeBrowsingContext.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/BrowsingContextBinding.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ContentParent.h"
@@ -29,9 +30,12 @@
 namespace mozilla {
 namespace dom {
 
-static LazyLogModule gBrowsingContextLog("BrowsingContext");
+extern mozilla::LazyLogModule gUserInteractionPRLog;
 
-static StaticAutoPtr<BrowsingContext::Children> sRootBrowsingContexts;
+#define USER_ACTIVATION_LOG(msg, ...) \
+  MOZ_LOG(gUserInteractionPRLog, LogLevel::Debug, (msg, ##__VA_ARGS__))
+
+static LazyLogModule gBrowsingContextLog("BrowsingContext");
 
 template <template <typename> class PtrType>
 using BrowsingContextMap =
@@ -47,6 +51,8 @@ static StaticAutoPtr<BrowsingContextMap<RefPtr>> sCachedBrowsingContexts;
 static void Register(BrowsingContext* aBrowsingContext) {
   MOZ_ALWAYS_TRUE(
       sBrowsingContexts->putNew(aBrowsingContext->Id(), aBrowsingContext));
+
+  aBrowsingContext->Group()->Register(aBrowsingContext);
 }
 
 static void Sync(BrowsingContext* aBrowsingContext) {
@@ -58,18 +64,20 @@ static void Sync(BrowsingContext* aBrowsingContext) {
   MOZ_DIAGNOSTIC_ASSERT(cc);
   RefPtr<BrowsingContext> parent = aBrowsingContext->GetParent();
   BrowsingContext* opener = aBrowsingContext->GetOpener();
-  cc->SendAttachBrowsingContext(BrowsingContextId(parent ? parent->Id() : 0),
-                                BrowsingContextId(opener ? opener->Id() : 0),
+  cc->SendAttachBrowsingContext(parent, opener,
                                 BrowsingContextId(aBrowsingContext->Id()),
                                 aBrowsingContext->Name());
 }
 
-/* static */ void BrowsingContext::Init() {
-  if (!sRootBrowsingContexts) {
-    sRootBrowsingContexts = new BrowsingContext::Children();
-    ClearOnShutdown(&sRootBrowsingContexts);
+BrowsingContext* BrowsingContext::TopLevelBrowsingContext() {
+  BrowsingContext* bc = this;
+  while (bc->mParent) {
+    bc = bc->mParent;
   }
+  return bc;
+}
 
+/* static */ void BrowsingContext::Init() {
   if (!sBrowsingContexts) {
     sBrowsingContexts = new BrowsingContextMap<WeakPtr>();
     ClearOnShutdown(&sBrowsingContexts);
@@ -94,6 +102,10 @@ static void Sync(BrowsingContext* aBrowsingContext) {
   return nullptr;
 }
 
+CanonicalBrowsingContext* BrowsingContext::Canonical() {
+  return CanonicalBrowsingContext::Cast(this);
+}
+
 /* static */ already_AddRefed<BrowsingContext> BrowsingContext::Create(
     BrowsingContext* aParent, BrowsingContext* aOpener, const nsAString& aName,
     Type aType) {
@@ -107,8 +119,8 @@ static void Sync(BrowsingContext* aBrowsingContext) {
 
   RefPtr<BrowsingContext> context;
   if (XRE_IsParentProcess()) {
-    context = new ChromeBrowsingContext(aParent, aOpener, aName, id,
-                                        /* aProcessId */ 0, aType);
+    context = new CanonicalBrowsingContext(aParent, aOpener, aName, id,
+                                           /* aProcessId */ 0, aType);
   } else {
     context = new BrowsingContext(aParent, aOpener, aName, id, aType);
   }
@@ -134,8 +146,10 @@ static void Sync(BrowsingContext* aBrowsingContext) {
 
   RefPtr<BrowsingContext> context;
   if (XRE_IsParentProcess()) {
-    context = new ChromeBrowsingContext(
+    context = new CanonicalBrowsingContext(
         aParent, aOpener, aName, aId, aOriginProcess->ChildID(), Type::Content);
+
+    context->Group()->Subscribe(aOriginProcess);
   } else {
     context = new BrowsingContext(aParent, aOpener, aName, aId, Type::Content);
   }
@@ -156,19 +170,18 @@ BrowsingContext::BrowsingContext(BrowsingContext* aParent,
       mParent(aParent),
       mOpener(aOpener),
       mName(aName),
-      mClosed(false) {
+      mClosed(false),
+      mIsActivatedByUserGesture(false) {
+  // Specify our group in our constructor. We will explicitly join the group
+  // when we are registered, as doing so will take a reference.
   if (mParent) {
-    mBrowsingContextGroup = mParent->mBrowsingContextGroup;
+    mGroup = mParent->Group();
   } else if (mOpener) {
-    mBrowsingContextGroup = mOpener->mBrowsingContextGroup;
+    mGroup = mOpener->Group();
   } else {
-    mBrowsingContextGroup = new BrowsingContextGroup();
-  }
-
-  if (!mParent) {
-    // If we don't have a parent we're either a top level or auxiliary
-    // BrowsingContext.
-    mBrowsingContextGroup->AppendElement(this);
+    // To ensure the group has a unique ID, we will use our ID, as the founder
+    // of this BrowsingContextGroup.
+    mGroup = new BrowsingContextGroup();
   }
 }
 
@@ -188,7 +201,7 @@ void BrowsingContext::Attach() {
 
   sCachedBrowsingContexts->remove(Id());
 
-  auto* children = mParent ? &mParent->mChildren : sRootBrowsingContexts.get();
+  auto* children = mParent ? &mParent->mChildren : &mGroup->Toplevels();
   MOZ_DIAGNOSTIC_ASSERT(!children->Contains(this));
 
   children->AppendElement(this);
@@ -207,20 +220,22 @@ void BrowsingContext::Detach() {
   BrowsingContextMap<RefPtr>::Ptr p;
   if (sCachedBrowsingContexts && (p = sCachedBrowsingContexts->lookup(Id()))) {
     MOZ_DIAGNOSTIC_ASSERT(!mParent || !mParent->mChildren.Contains(this));
-    MOZ_DIAGNOSTIC_ASSERT(!sRootBrowsingContexts->Contains(this));
+    MOZ_DIAGNOSTIC_ASSERT(!mGroup || !mGroup->Toplevels().Contains(this));
     sCachedBrowsingContexts->remove(p);
   } else {
-    auto* children =
-        mParent ? &mParent->mChildren : sRootBrowsingContexts.get();
+    Children& children = mParent ? mParent->mChildren : mGroup->Toplevels();
+
     // TODO(farre): This assert looks extremely fishy, I know, but
     // what we're actually saying is this: if we're detaching, but our
     // parent doesn't have any children, it is because we're being
     // detached by the cycle collector destroying docshells out of
     // order.
-    MOZ_DIAGNOSTIC_ASSERT(children->IsEmpty() || children->Contains(this));
+    MOZ_DIAGNOSTIC_ASSERT(children.IsEmpty() || children.Contains(this));
 
-    children->RemoveElement(this);
+    children.RemoveElement(this);
   }
+
+  Group()->Unregister(this);
 
   if (!XRE_IsContentProcess()) {
     return;
@@ -228,8 +243,7 @@ void BrowsingContext::Detach() {
 
   auto cc = ContentChild::GetSingleton();
   MOZ_DIAGNOSTIC_ASSERT(cc);
-  cc->SendDetachBrowsingContext(BrowsingContextId(Id()),
-                                false /* aMoveToBFCache */);
+  cc->SendDetachBrowsingContext(this, false /* aMoveToBFCache */);
 }
 
 void BrowsingContext::CacheChildren() {
@@ -254,8 +268,7 @@ void BrowsingContext::CacheChildren() {
 
   auto cc = ContentChild::GetSingleton();
   MOZ_DIAGNOSTIC_ASSERT(cc);
-  cc->SendDetachBrowsingContext(BrowsingContextId(Id()),
-                                true /* aMoveToBFCache */);
+  cc->SendDetachBrowsingContext(this, true /* aMoveToBFCache */);
 }
 
 bool BrowsingContext::IsCached() { return sCachedBrowsingContexts->has(Id()); }
@@ -278,19 +291,166 @@ void BrowsingContext::SetOpener(BrowsingContext* aOpener) {
 
   auto cc = ContentChild::GetSingleton();
   MOZ_DIAGNOSTIC_ASSERT(cc);
-  cc->SendSetOpenerBrowsingContext(
-      BrowsingContextId(Id()), BrowsingContextId(aOpener ? aOpener->Id() : 0));
+  cc->SendSetOpenerBrowsingContext(this, aOpener);
 }
 
-/* static */ void BrowsingContext::GetRootBrowsingContexts(
-    nsTArray<RefPtr<BrowsingContext>>& aBrowsingContexts) {
-  MOZ_ALWAYS_TRUE(aBrowsingContexts.AppendElements(*sRootBrowsingContexts));
+// FindWithName follows the rules for choosing a browsing context,
+// with the exception of sandboxing for iframes. The implementation
+// for arbitrarily choosing between two browsing contexts with the
+// same name is as follows:
+//
+// 1) The start browsing context, i.e. 'this'
+// 2) Descendants in insertion order
+// 3) The parent
+// 4) Siblings and their children, both in insertion order
+// 5) After this we iteratively follow the parent chain, repeating 3
+//    and 4 until
+// 6) If there is no parent, consider all other top level browsing
+//    contexts and their children, both in insertion order
+//
+// See
+// https://html.spec.whatwg.org/multipage/browsers.html#the-rules-for-choosing-a-browsing-context-given-a-browsing-context-name
+BrowsingContext* BrowsingContext::FindWithName(const nsAString& aName) {
+  BrowsingContext* found = nullptr;
+  if (aName.IsEmpty()) {
+    // You can't find a browsing context with an empty name.
+    found = nullptr;
+  } else if (BrowsingContext* special = FindWithSpecialName(aName)) {
+    found = special;
+  } else if (aName.LowerCaseEqualsLiteral("_blank")) {
+    // Just return null. Caller must handle creating a new window with
+    // a blank name.
+    found = nullptr;
+  } else if (BrowsingContext* child = FindWithNameInSubtree(aName, this)) {
+    found = child;
+  } else {
+    BrowsingContext* current = this;
+
+    do {
+      Children* siblings;
+      BrowsingContext* parent = current->mParent;
+
+      if (!parent) {
+        // We've reached the root of the tree, consider browsing
+        // contexts in the same browsing context group.
+        siblings = &mGroup->Toplevels();
+      } else if (parent->NameEquals(aName) && CanAccess(parent) &&
+                 parent->IsActive()) {
+        found = parent;
+        break;
+      } else {
+        siblings = &parent->mChildren;
+      }
+
+      for (BrowsingContext* sibling : *siblings) {
+        if (sibling == current) {
+          continue;
+        }
+
+        if (BrowsingContext* relative =
+                sibling->FindWithNameInSubtree(aName, this)) {
+          found = relative;
+          // Breaks the outer loop
+          parent = nullptr;
+          break;
+        }
+      }
+
+      current = parent;
+    } while (current);
+  }
+
+  // Helpers should perform access control checks, which means that we
+  // only need to assert that we can access found.
+  MOZ_DIAGNOSTIC_ASSERT(!found || CanAccess(found));
+
+  return found;
+}
+
+BrowsingContext* BrowsingContext::FindChildWithName(const nsAString& aName) {
+  if (aName.IsEmpty()) {
+    // You can't find a browsing context with the empty name.
+    return nullptr;
+  }
+
+  for (BrowsingContext* child : mChildren) {
+    if (child->NameEquals(aName) && CanAccess(child) && child->IsActive()) {
+      return child;
+    }
+  }
+
+  return nullptr;
+}
+
+BrowsingContext* BrowsingContext::FindWithSpecialName(const nsAString& aName) {
+  // TODO(farre): Neither BrowsingContext nor nsDocShell checks if the
+  // browsing context pointed to by a special name is active. Should
+  // it be? See Bug 1527913.
+  if (aName.LowerCaseEqualsLiteral("_self")) {
+    return this;
+  }
+
+  if (aName.LowerCaseEqualsLiteral("_parent")) {
+    return mParent && CanAccess(mParent.get()) ? mParent.get() : this;
+  }
+
+  if (aName.LowerCaseEqualsLiteral("_top")) {
+    BrowsingContext* top = TopLevelBrowsingContext();
+
+    return CanAccess(top) ? top : nullptr;
+  }
+
+  return nullptr;
+}
+
+BrowsingContext* BrowsingContext::FindWithNameInSubtree(
+    const nsAString& aName, BrowsingContext* aRequestingContext) {
+  MOZ_DIAGNOSTIC_ASSERT(!aName.IsEmpty());
+
+  if (NameEquals(aName) && aRequestingContext->CanAccess(this) && IsActive()) {
+    return this;
+  }
+
+  for (BrowsingContext* child : mChildren) {
+    if (BrowsingContext* found =
+            child->FindWithNameInSubtree(aName, aRequestingContext)) {
+      return found;
+    }
+  }
+
+  return nullptr;
+}
+
+bool BrowsingContext::CanAccess(BrowsingContext* aContext) {
+  // TODO(farre): Bouncing this to nsDocShell::CanAccessItem is
+  // temporary, we should implement a replacement for this in
+  // BrowsingContext. See Bug 151590.
+  return aContext && nsDocShell::CanAccessItem(aContext->mDocShell, mDocShell);
+}
+
+bool BrowsingContext::IsActive() const {
+  // TODO(farre): Mimicking the bahaviour from
+  // ItemIsActive(nsIDocShellTreeItem* aItem) is temporary, we should
+  // implement a replacement for this using mClosed only. See Bug
+  // 1527321.
+
+  if (!mDocShell) {
+    return mClosed;
+  }
+
+  if (nsCOMPtr<nsPIDOMWindowOuter> window = mDocShell->GetWindow()) {
+    auto* win = nsGlobalWindowOuter::Cast(window);
+    if (!win->GetClosedOuter()) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 BrowsingContext::~BrowsingContext() {
   MOZ_DIAGNOSTIC_ASSERT(!mParent || !mParent->mChildren.Contains(this));
-  MOZ_DIAGNOSTIC_ASSERT(!sRootBrowsingContexts ||
-                        !sRootBrowsingContexts->Contains(this));
+  MOZ_DIAGNOSTIC_ASSERT(!mGroup || !mGroup->Toplevels().Contains(this));
   MOZ_DIAGNOSTIC_ASSERT(!sCachedBrowsingContexts ||
                         !sCachedBrowsingContexts->has(Id()));
 
@@ -308,20 +468,73 @@ JSObject* BrowsingContext::WrapObject(JSContext* aCx,
   return BrowsingContext_Binding::Wrap(aCx, this, aGivenProto);
 }
 
+void BrowsingContext::NotifyUserGestureActivation() {
+  // We would set the user gesture activation flag on the top level browsing
+  // context, which would automatically be sync to other top level browsing
+  // contexts which are in the different process.
+  RefPtr<BrowsingContext> topLevelBC = TopLevelBrowsingContext();
+  USER_ACTIVATION_LOG("Get top level browsing context 0x%08" PRIx64,
+                      topLevelBC->Id());
+  topLevelBC->SetUserGestureActivation();
+
+  if (!XRE_IsContentProcess()) {
+    return;
+  }
+  auto cc = ContentChild::GetSingleton();
+  MOZ_ASSERT(cc);
+  cc->SendSetUserGestureActivation(topLevelBC, true);
+}
+
+void BrowsingContext::NotifyResetUserGestureActivation() {
+  // We would reset the user gesture activation flag on the top level browsing
+  // context, which would automatically be sync to other top level browsing
+  // contexts which are in the different process.
+  RefPtr<BrowsingContext> topLevelBC = TopLevelBrowsingContext();
+  USER_ACTIVATION_LOG("Get top level browsing context 0x%08" PRIx64,
+                      topLevelBC->Id());
+  topLevelBC->ResetUserGestureActivation();
+
+  if (!XRE_IsContentProcess()) {
+    return;
+  }
+  auto cc = ContentChild::GetSingleton();
+  MOZ_ASSERT(cc);
+  cc->SendSetUserGestureActivation(topLevelBC, false);
+}
+
+void BrowsingContext::SetUserGestureActivation() {
+  MOZ_ASSERT(!mParent, "Set user activation flag on non top-level context!");
+  USER_ACTIVATION_LOG(
+      "Set user gesture activation for browsing context 0x%08" PRIx64, Id());
+  mIsActivatedByUserGesture = true;
+}
+
+bool BrowsingContext::GetUserGestureActivation() {
+  RefPtr<BrowsingContext> topLevelBC = TopLevelBrowsingContext();
+  return topLevelBC->mIsActivatedByUserGesture;
+}
+
+void BrowsingContext::ResetUserGestureActivation() {
+  MOZ_ASSERT(!mParent, "Clear user activation flag on non top-level context!");
+  USER_ACTIVATION_LOG(
+      "Reset user gesture activation for browsing context 0x%08" PRIx64, Id());
+  mIsActivatedByUserGesture = false;
+}
+
 NS_IMPL_CYCLE_COLLECTION_CLASS(BrowsingContext)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(BrowsingContext)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocShell, mChildren, mParent)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocShell, mChildren, mParent, mGroup)
   if (XRE_IsParentProcess()) {
-    ChromeBrowsingContext::Cast(tmp)->Unlink();
+    CanonicalBrowsingContext::Cast(tmp)->Unlink();
   }
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(BrowsingContext)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocShell, mChildren, mParent)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocShell, mChildren, mParent, mGroup)
   if (XRE_IsParentProcess()) {
-    ChromeBrowsingContext::Cast(tmp)->Traverse(cb);
+    CanonicalBrowsingContext::Cast(tmp)->Traverse(cb);
   }
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -340,29 +553,23 @@ void BrowsingContext::Close(CallerType aCallerType, ErrorResult& aError) {
   //       document for this browsing context is loaded).
   //       See https://bugzilla.mozilla.org/show_bug.cgi?id=1516343.
   ContentChild* cc = ContentChild::GetSingleton();
-  cc->SendWindowClose(BrowsingContextId(mBrowsingContextId),
-                      aCallerType == CallerType::System);
+  cc->SendWindowClose(this, aCallerType == CallerType::System);
 }
 
 void BrowsingContext::Focus(ErrorResult& aError) {
   ContentChild* cc = ContentChild::GetSingleton();
-  cc->SendWindowFocus(BrowsingContextId(mBrowsingContextId));
+  cc->SendWindowFocus(this);
 }
 
 void BrowsingContext::Blur(ErrorResult& aError) {
   ContentChild* cc = ContentChild::GetSingleton();
-  cc->SendWindowBlur(BrowsingContextId(mBrowsingContextId));
+  cc->SendWindowBlur(this);
 }
 
 Nullable<WindowProxyHolder> BrowsingContext::GetTop(ErrorResult& aError) {
   // We never return null or throw an error, but the implementation in
   // nsGlobalWindow does and we need to use the same signature.
-  BrowsingContext* bc = this;
-  BrowsingContext* parent;
-  while ((parent = bc->mParent)) {
-    bc = parent;
-  }
-  return WindowProxyHolder(bc);
+  return WindowProxyHolder(TopLevelBrowsingContext());
 }
 
 void BrowsingContext::GetOpener(JSContext* aCx,
@@ -408,7 +615,7 @@ void BrowsingContext::PostMessageMoz(JSContext* aCx,
           getter_AddRefs(data.callerDocumentURI()), aError)) {
     return;
   }
-  data.source() = BrowsingContextId(sourceBc->Id());
+  data.source() = sourceBc;
   data.isFromPrivateWindow() =
       callerInnerWindow &&
       nsScriptErrorBase::ComputeIsFromPrivateWindow(callerInnerWindow);
@@ -433,8 +640,7 @@ void BrowsingContext::PostMessageMoz(JSContext* aCx,
     return;
   }
 
-  cc->SendWindowPostMessage(BrowsingContextId(mBrowsingContextId), messageData,
-                            data);
+  cc->SendWindowPostMessage(this, messageData, data);
 }
 
 void BrowsingContext::PostMessageMoz(JSContext* aCx,
@@ -446,21 +652,47 @@ void BrowsingContext::PostMessageMoz(JSContext* aCx,
                  aSubjectPrincipal, aError);
 }
 
-already_AddRefed<BrowsingContext> BrowsingContext::FindChildWithName(
-    const nsAString& aName) {
-  // FIXME https://bugzilla.mozilla.org/show_bug.cgi?id=1515646 will reimplement
-  //       this on top of the BC tree.
-  MOZ_ASSERT(mDocShell);
-  nsCOMPtr<nsIDocShellTreeItem> child;
-  mDocShell->FindChildWithName(aName, false, true, nullptr, nullptr,
-                               getter_AddRefs(child));
-  nsCOMPtr<nsIDocShell> childDS = do_QueryInterface(child);
-  RefPtr<BrowsingContext> bc;
-  if (childDS) {
-    childDS->GetBrowsingContext(getter_AddRefs(bc));
+}  // namespace dom
+
+namespace ipc {
+
+void IPDLParamTraits<dom::BrowsingContext>::Write(
+    IPC::Message* aMsg, IProtocol* aActor, dom::BrowsingContext* aParam) {
+  uint64_t id = aParam ? aParam->Id() : 0;
+  WriteIPDLParam(aMsg, aActor, id);
+
+  // If his is an in-process send. We want to make sure that our BrowsingContext
+  // object lives long enough to make it to the other side, so we take an extra
+  // reference. This reference is freed in ::Read().
+  if (!aActor->GetIPCChannel()->IsCrossProcess()) {
+    NS_IF_ADDREF(aParam);
   }
-  return bc.forget();
 }
 
-}  // namespace dom
+bool IPDLParamTraits<dom::BrowsingContext>::Read(
+    const IPC::Message* aMsg, PickleIterator* aIter, IProtocol* aActor,
+    RefPtr<dom::BrowsingContext>* aResult) {
+  uint64_t id = 0;
+  if (!ReadIPDLParam(aMsg, aIter, aActor, &id)) {
+    return false;
+  }
+
+  if (id == 0) {
+    aResult = nullptr;
+    return true;
+  }
+
+  *aResult = dom::BrowsingContext::Get(id);
+  MOZ_ASSERT(aResult, "Deserialized absent BrowsingContext!");
+
+  // If this is an in-process actor, free the reference taken in ::Write().
+  if (!aActor->GetIPCChannel()->IsCrossProcess()) {
+    dom::BrowsingContext* bc = *aResult;
+    NS_IF_RELEASE(bc);
+  }
+
+  return aResult != nullptr;
+}
+
+}  // namespace ipc
 }  // namespace mozilla

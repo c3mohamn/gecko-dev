@@ -45,8 +45,8 @@
 
 // Printing Includes
 #ifdef NS_PRINTING
-#include "nsIWebBrowserPrint.h"
-#include "nsIContentViewer.h"
+#  include "nsIWebBrowserPrint.h"
+#  include "nsIContentViewer.h"
 #endif
 
 // PSM2 includes
@@ -579,6 +579,12 @@ nsWebBrowser::SetOriginAttributesBeforeLoading(
 }
 
 NS_IMETHODIMP
+nsWebBrowser::ResumeRedirectedLoad(uint64_t aIdentifier,
+                                   int32_t aHistoryIndex) {
+  return mDocShellAsNav->ResumeRedirectedLoad(aIdentifier, aHistoryIndex);
+}
+
+NS_IMETHODIMP
 nsWebBrowser::Reload(uint32_t aReloadFlags) {
   NS_ENSURE_STATE(mDocShell);
 
@@ -604,13 +610,6 @@ nsWebBrowser::GetCurrentURI(nsIURI** aURI) {
   NS_ENSURE_STATE(mDocShell);
 
   return mDocShellAsNav->GetCurrentURI(aURI);
-}
-
-NS_IMETHODIMP
-nsWebBrowser::GetReferringURI(nsIURI** aURI) {
-  NS_ENSURE_STATE(mDocShell);
-
-  return mDocShellAsNav->GetReferringURI(aURI);
 }
 
 // XXX(nika): Consider making the mozilla::dom::ChildSHistory version the
@@ -702,6 +701,16 @@ nsWebBrowser::OnSecurityChange(nsIWebProgress* aWebProgress,
                                nsIRequest* aRequest, uint32_t aState) {
   if (mProgressListener) {
     return mProgressListener->OnSecurityChange(aWebProgress, aRequest, aState);
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsWebBrowser::OnContentBlockingEvent(nsIWebProgress* aWebProgress,
+                                     nsIRequest* aRequest, uint32_t aEvent) {
+  if (mProgressListener) {
+    return mProgressListener->OnContentBlockingEvent(aWebProgress, aRequest,
+                                                     aEvent);
   }
   return NS_OK;
 }

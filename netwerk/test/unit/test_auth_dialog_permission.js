@@ -6,8 +6,8 @@
 //       but don't allow it for cross-origin sub-resources
 //   2 - allow the cross-origin authentication as well.
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var prefs = Cc["@mozilla.org/preferences-service;1"].
               getService(Ci.nsIPrefBranch);
@@ -193,7 +193,7 @@ Test.prototype = {
                      this._subresource_http_auth_allow_pref);
     let chan = makeChan(this._loadingUri, this._uri, this._contentPolicy);
     chan.notificationCallbacks = new Requestor(this._expectedCode == 200);
-    chan.asyncOpen2(this);
+    chan.asyncOpen(this);
   }
 };
 

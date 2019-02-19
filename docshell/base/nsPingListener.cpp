@@ -220,7 +220,7 @@ static void SendPing(void* aClosure, nsIContent* aContent, nsIURI* aURI,
   chan->SetLoadGroup(loadGroup);
 
   RefPtr<nsPingListener> pingListener = new nsPingListener();
-  chan->AsyncOpen2(pingListener);
+  chan->AsyncOpen(pingListener);
 
   // Even if AsyncOpen failed, we still count this as a successful ping.  It's
   // possible that AsyncOpen may have failed after triggering some background
@@ -281,10 +281,7 @@ static void ForEachPing(nsIContent* aContent, ForEachPingCallback aCallback,
       continue;
     }
     // Explicitly not allow loading data: URIs
-    bool isDataScheme =
-        (NS_SUCCEEDED(uri->SchemeIs("data", &isDataScheme)) && isDataScheme);
-
-    if (!isDataScheme) {
+    if (!net::SchemeIsData(uri)) {
       aCallback(aClosure, aContent, uri, ios);
     }
   }

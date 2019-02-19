@@ -27,13 +27,13 @@ const USB_ICON = "chrome://devtools/skin/images/aboutdebugging-connect-icon.svg"
 class Sidebar extends PureComponent {
   static get propTypes() {
     return {
-      adbAddonStatus: PropTypes.string,
+      adbAddonStatus: Types.adbAddonStatus,
       className: PropTypes.string,
       dispatch: PropTypes.func.isRequired,
       isScanningUsb: PropTypes.bool.isRequired,
       networkRuntimes: PropTypes.arrayOf(Types.runtime).isRequired,
-      selectedPage: PropTypes.string,
-      selectedRuntime: PropTypes.string,
+      selectedPage: Types.page,
+      selectedRuntimeId: PropTypes.string,
       usbRuntimes: PropTypes.arrayOf(Types.runtime).isRequired,
     };
   }
@@ -88,13 +88,13 @@ class Sidebar extends PureComponent {
   }
 
   renderSidebarItems(icon, runtimes) {
-    const { dispatch, selectedPage, selectedRuntime } = this.props;
+    const { dispatch, selectedPage, selectedRuntimeId } = this.props;
 
     return runtimes.map(runtime => {
       const keyId = `${runtime.type}-${runtime.id}`;
       const runtimeHasDetails = !!runtime.runtimeDetails;
       const isSelected = selectedPage === PAGE_TYPES.RUNTIME &&
-        runtime.id === selectedRuntime;
+        runtime.id === selectedRuntimeId;
 
       return SidebarRuntimeItem({
         deviceName: runtime.extra.deviceName,
@@ -111,7 +111,7 @@ class Sidebar extends PureComponent {
   }
 
   render() {
-    const { dispatch, selectedPage, selectedRuntime, isScanningUsb } = this.props;
+    const { dispatch, selectedPage, selectedRuntimeId, isScanningUsb } = this.props;
 
     return dom.aside(
       {
@@ -119,17 +119,6 @@ class Sidebar extends PureComponent {
       },
       dom.ul(
         {},
-        Localized(
-          { id: "about-debugging-sidebar-this-firefox", attrs: { name: true } },
-          SidebarFixedItem({
-            icon: FIREFOX_ICON,
-            isSelected: PAGE_TYPES.RUNTIME === selectedPage &&
-              selectedRuntime === RUNTIMES.THIS_FIREFOX,
-            key: RUNTIMES.THIS_FIREFOX,
-            name: "This Firefox",
-            to: `/runtime/${RUNTIMES.THIS_FIREFOX}`,
-          })
-        ),
         Localized(
           { id: "about-debugging-sidebar-connect", attrs: { name: true } },
           SidebarFixedItem({
@@ -139,6 +128,17 @@ class Sidebar extends PureComponent {
             key: PAGE_TYPES.CONNECT,
             name: "Connect",
             to: "/connect",
+          })
+        ),
+        Localized(
+          { id: "about-debugging-sidebar-this-firefox", attrs: { name: true } },
+          SidebarFixedItem({
+            icon: FIREFOX_ICON,
+            isSelected: PAGE_TYPES.RUNTIME === selectedPage &&
+              selectedRuntimeId === RUNTIMES.THIS_FIREFOX,
+            key: RUNTIMES.THIS_FIREFOX,
+            name: "This Firefox",
+            to: `/runtime/${RUNTIMES.THIS_FIREFOX}`,
           })
         ),
         SidebarItem(

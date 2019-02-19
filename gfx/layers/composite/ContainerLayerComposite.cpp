@@ -38,7 +38,7 @@
 #include "GeckoProfiler.h"  // for GeckoProfiler
 
 #ifdef MOZ_GECKO_PROFILER
-#include "ProfilerMarkerPayload.h"  // for LayerTranslationMarkerPayload
+#  include "ProfilerMarkerPayload.h"  // for LayerTranslationMarkerPayload
 #endif
 
 #define CULLING_LOG(...)
@@ -100,7 +100,7 @@ static void PrintUniformityInfo(Layer* aLayer) {
   }
 
   Point translation = transform.As2D().GetTranslation();
-  profiler_add_marker("LayerTranslation",
+  profiler_add_marker("LayerTranslation", JS::ProfilingCategoryPair::GRAPHICS,
                       MakeUnique<LayerTranslationMarkerPayload>(
                           aLayer, translation, TimeStamp::Now()));
 #endif
@@ -564,7 +564,7 @@ RefPtr<CompositingRenderTarget> CreateTemporaryTargetAndCopyFromBackground(
              !gfx::ThebesMatrix(transform2d).HasNonIntegerTranslation());
   sourcePoint += gfx::IntPoint::Truncate(transform._41, transform._42);
 
-  sourcePoint -= compositor->GetCurrentRenderTarget()->GetOrigin();
+  sourcePoint -= previousTarget->GetOrigin();
 
   return compositor->CreateRenderTargetFromSource(surfaceRect, previousTarget,
                                                   sourcePoint);

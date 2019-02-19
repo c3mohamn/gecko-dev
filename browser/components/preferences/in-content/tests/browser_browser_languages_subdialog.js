@@ -2,7 +2,7 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 ChromeUtils.import("resource://testing-common/AddonTestUtils.jsm", this);
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+var {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 
 AddonTestUtils.initMochitest(this);
@@ -141,7 +141,7 @@ function assertLocaleOrder(list, locales) {
 }
 
 function assertAvailableLocales(list, locales) {
-  let items = Array.from(list.firstElementChild.children);
+  let items = Array.from(list.menupopup.children);
   let listLocales = items
     .filter(item => item.value && item.value != "search");
   is(listLocales.length, locales.length, "The right number of locales are available");
@@ -170,18 +170,29 @@ function assertTelemetryRecorded(events) {
   Assert.deepEqual(relatedEvents, events, "The events are recorded correctly");
 }
 
-function selectLocale(localeCode, available, dialogDoc) {
-  let [locale] = Array.from(available.firstElementChild.children)
+async function selectLocale(localeCode, available, selected, dialogDoc) {
+  let [locale] = Array.from(available.menupopup.children)
     .filter(item => item.value == localeCode);
   available.selectedItem = locale;
+
+  // Get ready for the selected list to change.
+  let added = waitForMutation(
+    selected,
+    {childList: true},
+    target => Array.from(target.children).some(el => el.value == localeCode));
+
+  // Add the locale.
   dialogDoc.getElementById("add").doCommand();
+
+  // Wait for the list to update.
+  await added;
 }
 
 async function openDialog(doc, search = false) {
   let dialogLoaded = promiseLoadSubDialog(BROWSER_LANGUAGES_URL);
   if (search) {
     doc.getElementById("defaultBrowserLanguageSearch").doCommand();
-    doc.getElementById("defaultBrowserLanguage").firstElementChild.hidePopup();
+    doc.getElementById("defaultBrowserLanguage").menupopup.hidePopup();
   } else {
     doc.getElementById("manageBrowserLanguagesButton").doCommand();
   }
@@ -242,26 +253,20 @@ add_task(async function testDisabledBrowserLanguages() {
   assertAvailableLocales(available, ["fr"]);
 
   // Search for more languages.
-  available.firstElementChild.lastElementChild.doCommand();
-  available.firstElementChild.hidePopup();
+  available.menupopup.lastElementChild.doCommand();
+  available.menupopup.hidePopup();
   await waitForMutation(
-    available.firstElementChild,
+    available.menupopup,
     {childList: true},
     target =>
-      Array.from(available.firstElementChild.children)
+      Array.from(available.menupopup.children)
         .some(locale => locale.value == "pl"));
 
   // pl is now available since it is available remotely.
   assertAvailableLocales(available, ["fr", "pl"]);
 
   // Add pl.
-  selectLocale("pl", available, dialogDoc);
-
-  // Wait for pl to be added, this should upgrade and enable the existing langpack.
-  await waitForMutation(
-    selected,
-    {childList: true},
-    target => selected.itemCount == 3);
+  await selectLocale("pl", available, selected, dialogDoc);
   assertLocaleOrder(selected, "pl,en-US,he");
 
   // Find pl again since it's been upgraded.
@@ -277,7 +282,6 @@ add_task(async function testDisabledBrowserLanguages() {
   await Promise.all(addons.map(addon => addon.uninstall()));
   BrowserTestUtils.removeTab(gBrowser.selectedTab);
 
-  // FIXME: Also here
   assertTelemetryRecorded([
     ["manage", "main", dialogId],
     ["search", "dialog", dialogId],
@@ -402,8 +406,8 @@ add_task(async function testAddAndRemoveSelectedLanguages() {
   assertAvailableLocales(available, ["fr", "pl", "he"]);
 
   // Add pl and fr to selected.
-  selectLocale("pl", available, dialogDoc);
-  selectLocale("fr", available, dialogDoc);
+  await selectLocale("pl", available, selected, dialogDoc);
+  await selectLocale("fr", available, selected, dialogDoc);
 
   assertLocaleOrder(selected, "fr,pl,en-US");
   assertAvailableLocales(available, ["he"]);
@@ -415,7 +419,7 @@ add_task(async function testAddAndRemoveSelectedLanguages() {
   assertAvailableLocales(available, ["fr", "pl", "he"]);
 
   // Add he to selected.
-  selectLocale("he", available, dialogDoc);
+  await selectLocale("he", available, selected, dialogDoc);
   assertLocaleOrder(selected, "he,en-US");
   assertAvailableLocales(available, ["pl", "fr"]);
 
@@ -486,7 +490,7 @@ add_task(async function testInstallFromAMO() {
 
   if (available.itemCount == 1) {
     await waitForMutation(
-      available.firstElementChild,
+      available.menupopup,
       {childList: true},
       target => available.itemCount > 1);
   }
@@ -502,14 +506,7 @@ add_task(async function testInstallFromAMO() {
   is(dicts.length, 0, "There are no installed dictionaries");
 
   // Add Polish, this will install the langpack.
-  selectLocale("pl", available, dialogDoc);
-
-  // Wait for the langpack to install and be added to the list.
-  let selectedLocales = dialogDoc.getElementById("selectedLocales");
-  await waitForMutation(
-    selectedLocales,
-    {childList: true},
-    target => selectedLocales.itemCount == 2);
+  await selectLocale("pl", available, selected, dialogDoc);
 
   let langpack = await AddonManager.getAddonByID(langpackId("pl"));
   Assert.deepEqual(
@@ -554,7 +551,7 @@ add_task(async function testInstallFromAMO() {
   // Wait for the available langpacks to load.
   if (available.itemCount == 1) {
     await waitForMutation(
-      available.firstElementChild,
+      available.menupopup,
       {childList: true},
       target => available.itemCount > 1);
   }
@@ -569,7 +566,6 @@ add_task(async function testInstallFromAMO() {
   BrowserTestUtils.removeTab(gBrowser.selectedTab);
 
   ok(installId, "The langpack has an installId");
-  // FIXME: Most are here
   assertTelemetryRecorded([
     // First dialog installs a locale and accepts.
     ["search", "main", firstDialogId],
@@ -599,10 +595,10 @@ add_task(async function testDownloadEnabled() {
   let doc = gBrowser.contentDocument;
 
   let defaultMenulist = doc.getElementById("defaultBrowserLanguage");
-  ok(hasSearchOption(defaultMenulist.firstChild), "There's a search option in the General pane");
+  ok(hasSearchOption(defaultMenulist.menupopup), "There's a search option in the General pane");
 
   let { available } = await openDialog(doc, false);
-  ok(hasSearchOption(available.firstChild), "There's a search option in the dialog");
+  ok(hasSearchOption(available.menupopup), "There's a search option in the dialog");
 
   BrowserTestUtils.removeTab(gBrowser.selectedTab);
 });
@@ -620,10 +616,10 @@ add_task(async function testDownloadDisabled() {
   let doc = gBrowser.contentDocument;
 
   let defaultMenulist = doc.getElementById("defaultBrowserLanguage");
-  ok(!hasSearchOption(defaultMenulist.firstChild), "There's no search option in the General pane");
+  ok(!hasSearchOption(defaultMenulist.menupopup), "There's no search option in the General pane");
 
   let { available } = await openDialog(doc, false);
-  ok(!hasSearchOption(available.firstChild), "There's no search option in the dialog");
+  ok(!hasSearchOption(available.menupopup), "There's no search option in the dialog");
 
   BrowserTestUtils.removeTab(gBrowser.selectedTab);
 });
@@ -654,7 +650,7 @@ add_task(async function testReorderMainPane() {
   is(messageBar.hidden, true, "The message bar is hidden at first");
 
   let available = doc.getElementById("defaultBrowserLanguage");
-  let availableLocales = Array.from(available.firstElementChild.children);
+  let availableLocales = Array.from(available.menupopup.children);
   let availableCodes = availableLocales.map(item => item.value).sort().join(",");
   is(availableCodes, "en-US,fr,he,pl",
      "All of the available locales are listed");
@@ -663,7 +659,7 @@ add_task(async function testReorderMainPane() {
 
   let hebrew = availableLocales[availableLocales.findIndex(item => item.value == "he")];
   hebrew.click();
-  available.firstElementChild.hidePopup();
+  available.menupopup.hidePopup();
 
   await BrowserTestUtils.waitForCondition(
     () => !messageBar.hidden, "Wait for message bar to show");

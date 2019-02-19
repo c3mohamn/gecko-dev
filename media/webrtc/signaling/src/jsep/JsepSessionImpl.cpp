@@ -263,23 +263,17 @@ nsresult JsepSessionImpl::CreateOfferMsection(const JsepOfferOptions& options,
 
   AddExtmap(msection);
 
-  if (lastAnswerMsection && lastAnswerMsection->GetPort()) {
-    MOZ_ASSERT(transceiver.IsAssociated());
-    MOZ_ASSERT(transceiver.GetMid() ==
-               lastAnswerMsection->GetAttributeList().GetMid());
+  std::string mid;
+  // We do not set the mid on the transceiver, that happens when a description
+  // is set.
+  if (transceiver.IsAssociated()) {
+    mid = transceiver.GetMid();
   } else {
-    std::string mid;
-    // We do not set the mid on the transceiver, that happens when a description
-    // is set.
-    if (transceiver.IsAssociated()) {
-      mid = transceiver.GetMid();
-    } else {
-      mid = GetNewMid();
-    }
-
-    msection->GetAttributeList().SetAttribute(
-        new SdpStringAttribute(SdpAttribute::kMidAttribute, mid));
+    mid = GetNewMid();
   }
+
+  msection->GetAttributeList().SetAttribute(
+      new SdpStringAttribute(SdpAttribute::kMidAttribute, mid));
 
   return NS_OK;
 }
@@ -908,12 +902,12 @@ nsresult JsepSessionImpl::SetRemoteDescription(JsepSdpType type,
   if (type == kJsepSdpOffer) {
     mOldTransceivers.clear();
     for (const auto& transceiver : mTransceivers) {
+      mOldTransceivers.push_back(new JsepTransceiver(*transceiver));
       if (!transceiver->IsNegotiated()) {
         // We chose a level for this transceiver, but never negotiated it.
         // Discard this state.
         transceiver->ClearLevel();
       }
-      mOldTransceivers.push_back(new JsepTransceiver(*transceiver));
     }
   }
 
@@ -1789,6 +1783,16 @@ nsresult JsepSessionImpl::ValidateAnswer(const Sdp& offer, const Sdp& answer) {
     if (offerMsection.GetMediaType() != answerMsection.GetMediaType()) {
       JSEP_SET_ERROR("Answer and offer have different media types at m-line "
                      << i);
+      return NS_ERROR_INVALID_ARG;
+    }
+
+    if (mSdpHelper.MsectionIsDisabled(answerMsection)) {
+      continue;
+    }
+
+    if (mSdpHelper.MsectionIsDisabled(offerMsection)) {
+      JSEP_SET_ERROR(
+          "Answer tried to enable an m-section that was disabled in the offer");
       return NS_ERROR_INVALID_ARG;
     }
 

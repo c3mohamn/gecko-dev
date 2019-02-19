@@ -6,11 +6,13 @@
 
 var EXPORTED_SYMBOLS = ["SessionHistory"];
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 ChromeUtils.defineModuleGetter(this, "Utils",
   "resource://gre/modules/sessionstore/Utils.jsm");
+ChromeUtils.defineModuleGetter(this, "E10SUtils",
+  "resource://gre/modules/E10SUtils.jsm");
 XPCOMUtils.defineLazyServiceGetter(this, "uuidGenerator",
   "@mozilla.org/uuid-generator;1", "nsIUUIDGenerator");
 
@@ -74,7 +76,12 @@ var SessionHistoryInternal = {
     let webNavigation = docShell.QueryInterface(Ci.nsIWebNavigation);
     let history = webNavigation.sessionHistory;
 
-    let data = {entries: [], userContextId: loadContext.originAttributes.userContextId };
+    let data = {
+      entries: [],
+      userContextId: loadContext.originAttributes.userContextId,
+      requestedIndex: history.legacySHistory.requestedIndex + 1,
+    };
+
     // We want to keep track how many entries we *could* have collected and
     // how many we skipped, so we can sanitiy-check the current history index
     // and also determine whether we need to get any fallback data or not.
@@ -143,9 +150,8 @@ var SessionHistoryInternal = {
 
     // We will include the property only if it's truthy to save a couple of
     // bytes when the resulting object is stringified and saved to disk.
-    if (shEntry.referrerURI) {
-      entry.referrer = shEntry.referrerURI.spec;
-      entry.referrerPolicy = shEntry.referrerPolicy;
+    if (shEntry.referrerInfo) {
+      entry.referrerInfo = E10SUtils.serializeReferrerInfo(shEntry.referrerInfo);
     }
 
     if (shEntry.originalURI) {
@@ -328,7 +334,6 @@ var SessionHistoryInternal = {
    * @returns nsISHEntry
    */
   deserializeEntry(entry, idMap, docIdentMap) {
-
     var shEntry = Cc["@mozilla.org/browser/session-history-entry;1"].
                   createInstance(Ci.nsISHEntry);
 
@@ -339,10 +344,19 @@ var SessionHistoryInternal = {
     shEntry.setLoadTypeAsHistory();
     if (entry.contentType)
       shEntry.contentType = entry.contentType;
-    if (entry.referrer) {
-      shEntry.referrerURI = Services.io.newURI(entry.referrer);
-      shEntry.referrerPolicy = entry.referrerPolicy;
+    // Referrer information is now stored as a referrerInfo property. We should
+    // also cope with the old format of passing `referrer` and `referrerPolicy`
+    // separately.
+    if (entry.referrerInfo) {
+      shEntry.referrerInfo = E10SUtils.deserializeReferrerInfo(entry.referrerInfo);
+    } else if (entry.referrer) {
+      let ReferrerInfo = Components.Constructor("@mozilla.org/referrer-info;1",
+                                                "nsIReferrerInfo",
+                                                "init");
+      shEntry.referrerInfo = new ReferrerInfo(
+        entry.referrerPolicy, true, Services.io.newURI(entry.referrer));
     }
+
     if (entry.originalURI) {
       shEntry.originalURI = Services.io.newURI(entry.originalURI);
     }

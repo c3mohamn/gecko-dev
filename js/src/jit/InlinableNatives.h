@@ -144,10 +144,13 @@
   _(IntrinsicGuardToSharedArrayBuffer)             \
                                                    \
   _(TypedArrayConstructor)                         \
+  _(IntrinsicIsTypedArrayConstructor)              \
   _(IntrinsicIsTypedArray)                         \
   _(IntrinsicIsPossiblyWrappedTypedArray)          \
   _(IntrinsicTypedArrayLength)                     \
   _(IntrinsicPossiblyWrappedTypedArrayLength)      \
+  _(IntrinsicTypedArrayByteOffset)                 \
+  _(IntrinsicTypedArrayElementShift)               \
   _(IntrinsicSetDisjointTypedElements)             \
                                                    \
   _(IntrinsicObjectIsTypedObject)                  \

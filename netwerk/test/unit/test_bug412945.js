@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var httpserv;
 
@@ -28,7 +28,7 @@ function run_test() {
 
   channel.QueryInterface(Ci.nsIHttpChannel);
   channel.requestMethod = "POST";
-  channel.asyncOpen2(new TestListener(), null);
+  channel.asyncOpen(new TestListener(), null);
 
   do_test_pending();
 }

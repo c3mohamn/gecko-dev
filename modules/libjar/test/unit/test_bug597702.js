@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 // Check that reading non existant inner jars results in the right error
 
@@ -17,13 +17,13 @@ function run_test() {
   var badChannel = NetUtil.newChannel({uri: badSpec, loadUsingSystemPrincipal: true});
 
   try {
-    instr = goodChannel.open2();
+    instr = goodChannel.open();
   } catch (e) {
     do_throw("Failed to open file in inner jar");
   }
 
   try {
-    instr = badChannel.open2();
+    instr = badChannel.open();
     do_throw("Failed to report that file doesn't exist");
   } catch (e) {
     Assert.ok(e.name == "NS_ERROR_FILE_NOT_FOUND");

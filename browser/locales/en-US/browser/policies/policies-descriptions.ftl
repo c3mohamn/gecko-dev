@@ -23,6 +23,8 @@ policy-BlockAboutSupport = Block access to the about:support page.
 
 policy-Bookmarks = Create bookmarks in the Bookmarks toolbar, Bookmarks menu, or a specified folder inside them.
 
+policy-CaptivePortal = Enable or disable captive portal support.
+
 policy-CertificatesDescription = Add certificates or use built-in certificates.
 
 policy-Cookies = Allow or deny websites to set cookies.
@@ -82,6 +84,8 @@ policy-EnableTrackingProtection = Enable or disable Content Blocking and optiona
 # English or translate them as verbs.
 policy-Extensions = Install, uninstall or lock extensions. The Install option takes URLs or paths as parameters. The Uninstall and Locked options take extension IDs.
 
+policy-ExtensionUpdate = Enable or disable automatic extension updates.
+
 policy-FlashPlugin = Allow or deny usage of the Flash plugin.
 
 policy-HardwareAcceleration = If false, turn off hardware acceleration.
@@ -90,6 +94,8 @@ policy-HardwareAcceleration = If false, turn off hardware acceleration.
 policy-Homepage = Set and optionally lock the homepage.
 
 policy-InstallAddonsPermission = Allow certain websites to install add-ons.
+
+policy-NetworkPrediction = Enable or disable network prediction (DNS prefetching).
 
 policy-NoDefaultBookmarks = Disable creation of the default bookmarks bundled with { -brand-short-name }, and the Smart Bookmarks (Most Visited, Recent Tags). Note: this policy is only effective if used before the first run of the profile.
 
@@ -115,6 +121,12 @@ policy-SearchEngines = Configure search engine settings. This policy is only ava
 
 # For more information, see https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/PKCS11/Module_Installation
 policy-SecurityDevices = Install PKCS #11 modules.
+
+policy-SSLVersionMax = Set the maximum SSL version.
+
+policy-SSLVersionMin = Set the minimum SSL version.
+
+policy-SupportMenu = Add a custom support menu item to the help menu.
 
 # “format” refers to the format used for the value of this policy.
 policy-WebsiteFilter = Block websites from being visited. See documentation for more details on the format.

@@ -23,7 +23,9 @@
 #include "mozilla/Compression.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/Sprintf.h"  // SprintfLiteral
 #include "mozilla/Unused.h"
+#include "mozilla/Utf8.h"  // mozilla::Utf8Unit
 #include "mozilla/Variant.h"
 
 #include <new>
@@ -81,6 +83,7 @@ using mozilla::IsPowerOfTwo;
 using mozilla::PodZero;
 using mozilla::PositiveInfinity;
 using mozilla::Unused;
+using mozilla::Utf8Unit;
 using mozilla::Compression::LZ4;
 
 /*****************************************************************************/
@@ -257,8 +260,6 @@ class AsmJSGlobal {
     MOZ_ASSERT(pod.which_ == Constant);
     return pod.u.constant.value_;
   }
-
-  WASM_DECLARE_SERIALIZABLE(AsmJSGlobal);
 };
 
 typedef Vector<AsmJSGlobal, 0, SystemAllocPolicy> AsmJSGlobalVector;
@@ -302,8 +303,6 @@ class AsmJSExport {
 
 typedef Vector<AsmJSExport, 0, SystemAllocPolicy> AsmJSExportVector;
 
-enum class CacheResult { Hit, Miss };
-
 // Holds the immutable guts of an AsmJSModule.
 //
 // AsmJSMetadata is built incrementally by ModuleValidator and then shared
@@ -325,8 +324,6 @@ struct js::AsmJSMetadata : Metadata, AsmJSMetadataCacheablePod {
   CacheableChars globalArgumentName;
   CacheableChars importArgumentName;
   CacheableChars bufferArgumentName;
-
-  CacheResult cacheResult;
 
   // These values are not serialized since they are relative to the
   // containing script which can be different between serialization and
@@ -350,7 +347,6 @@ struct js::AsmJSMetadata : Metadata, AsmJSMetadataCacheablePod {
 
   AsmJSMetadata()
       : Metadata(ModuleKind::AsmJS),
-        cacheResult(CacheResult::Miss),
         toStringStart(0),
         srcStart(0),
         strict(false) {}
@@ -390,8 +386,6 @@ struct js::AsmJSMetadata : Metadata, AsmJSMetadataCacheablePod {
 
   AsmJSMetadataCacheablePod& pod() { return *this; }
   const AsmJSMetadataCacheablePod& pod() const { return *this; }
-
-  WASM_DECLARE_SERIALIZABLE_OVERRIDE(AsmJSMetadata)
 };
 
 typedef RefPtr<AsmJSMetadata> MutableAsmJSMetadata;
@@ -578,19 +572,18 @@ static ParseNode* ElemIndex(ParseNode* pn) {
   return &pn->as<PropertyByValue>().key();
 }
 
-static inline JSFunction* FunctionObject(CodeNode* funNode) {
-  MOZ_ASSERT(funNode->isKind(ParseNodeKind::Function));
+static inline JSFunction* FunctionObject(FunctionNode* funNode) {
   return funNode->funbox()->function();
 }
 
-static inline PropertyName* FunctionName(CodeNode* funNode) {
+static inline PropertyName* FunctionName(FunctionNode* funNode) {
   if (JSAtom* name = FunctionObject(funNode)->explicitName()) {
     return name->asPropertyName();
   }
   return nullptr;
 }
 
-static inline ParseNode* FunctionStatementList(CodeNode* funNode) {
+static inline ParseNode* FunctionStatementList(FunctionNode* funNode) {
   MOZ_ASSERT(funNode->body()->isKind(ParseNodeKind::ParamsBody));
   LexicalScopeNode* last =
       &funNode->body()->as<ListNode>().last()->as<LexicalScopeNode>();
@@ -1325,9 +1318,9 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidatorShared {
   using MathNameMap = HashMap<PropertyName*, MathBuiltin>;
   using ArrayViewVector = Vector<ArrayView>;
 
-protected:
+ protected:
   JSContext* cx_;
-  CodeNode* moduleFunctionNode_;
+  FunctionNode* moduleFunctionNode_;
   PropertyName* moduleFunctionName_;
   PropertyName* globalArgumentName_ = nullptr;
   PropertyName* importArgumentName_ = nullptr;
@@ -1355,7 +1348,7 @@ protected:
   bool errorOverRecursed_ = false;
 
  protected:
-  ModuleValidatorShared(JSContext* cx, CodeNode* moduleFunctionNode)
+  ModuleValidatorShared(JSContext* cx, FunctionNode* moduleFunctionNode)
       : cx_(cx),
         moduleFunctionNode_(moduleFunctionNode),
         moduleFunctionName_(FunctionName(moduleFunctionNode)),
@@ -1369,10 +1362,10 @@ protected:
         funcImportMap_(cx),
         arrayViews_(cx),
         compilerEnv_(CompileMode::Once, Tier::Optimized, OptimizedBackend::Ion,
-                     DebugEnabled::False, HasGcTypes::False),
-        env_(HasGcTypes::False, &compilerEnv_, Shareable::False,
+                     DebugEnabled::False, /* gc types */ false),
+        env_(/* gc types */ false, &compilerEnv_, Shareable::False,
              ModuleKind::AsmJS) {
-    compilerEnv_.computeParameters(HasGcTypes::False);
+    compilerEnv_.computeParameters(/* gc types */ false);
     env_.minMemoryLength = RoundUpToNextValidAsmJSHeapLength(0);
   }
 
@@ -1888,7 +1881,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
 
  public:
   ModuleValidator(JSContext* cx, AsmJSParser<Unit>& parser,
-                  CodeNode* moduleFunctionNode)
+                  FunctionNode* moduleFunctionNode)
       : ModuleValidatorShared(cx, moduleFunctionNode), parser_(parser) {}
 
   ~ModuleValidator() {
@@ -1979,9 +1972,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
 
   AsmJSParser<Unit>& parser() const { return parser_; }
 
-  auto tokenStream() const -> decltype(parser_.tokenStream)& {
-    return parser_.tokenStream;
-  }
+  auto& tokenStream() const { return parser_.tokenStream; }
 
  public:
   bool addFuncDef(PropertyName* name, uint32_t firstUse, FuncType&& sig,
@@ -2083,7 +2074,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
                       str);
   }
 
-  SharedModule finish(UniqueLinkData* linkData) {
+  SharedModule finish() {
     MOZ_ASSERT(env_.funcTypes.empty());
     if (!env_.funcTypes.resize(funcImportMap_.count() + funcDefs_.length())) {
       return nullptr;
@@ -2137,8 +2128,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
       }
     }
 
-    MutableCompileArgs args =
-        cx_->new_<CompileArgs>(cx_, std::move(scriptedCaller));
+    SharedCompileArgs args = CompileArgs::build(cx_, std::move(scriptedCaller));
     if (!args) {
       return nullptr;
     }
@@ -2177,7 +2167,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
       return nullptr;
     }
 
-    return mg.finishModule(*bytes, nullptr, linkData);
+    return mg.finishModule(*bytes);
   }
 };
 
@@ -2687,7 +2677,7 @@ static bool CheckModuleLevelName(ModuleValidatorShared& m, ParseNode* usepn,
   return true;
 }
 
-static bool CheckFunctionHead(ModuleValidatorShared& m, CodeNode* funNode) {
+static bool CheckFunctionHead(ModuleValidatorShared& m, FunctionNode* funNode) {
   FunctionBox* funbox = funNode->funbox();
   MOZ_ASSERT(!funbox->hasExprBody());
 
@@ -2731,7 +2721,8 @@ static bool CheckModuleArgument(ModuleValidatorShared& m, ParseNode* arg,
   return true;
 }
 
-static bool CheckModuleArguments(ModuleValidatorShared& m, CodeNode* funNode) {
+static bool CheckModuleArguments(ModuleValidatorShared& m,
+                                 FunctionNode* funNode) {
   unsigned numFormals;
   ParseNode* arg1 = FunctionFormalParametersList(funNode, &numFormals);
   ParseNode* arg2 = arg1 ? NextNode(arg1) : nullptr;
@@ -5995,7 +5986,7 @@ static bool CheckStatement(FunctionValidator<Unit>& f, ParseNode* stmt) {
 }
 
 template <typename Unit>
-static bool ParseFunction(ModuleValidator<Unit>& m, CodeNode** funNodeOut,
+static bool ParseFunction(ModuleValidator<Unit>& m, FunctionNode** funNodeOut,
                           unsigned* line) {
   auto& tokenStream = m.tokenStream();
 
@@ -6023,7 +6014,8 @@ static bool ParseFunction(ModuleValidator<Unit>& m, CodeNode** funNodeOut,
     return false;
   }
 
-  CodeNode* funNode = m.parser().handler.newFunctionStatement(m.parser().pos());
+  FunctionNode* funNode = m.parser().handler.newFunction(
+      FunctionSyntaxKind::Statement, m.parser().pos());
   if (!funNode) {
     return false;
   }
@@ -6073,7 +6065,7 @@ static bool CheckFunction(ModuleValidator<Unit>& m) {
   auto releaseMark =
       mozilla::MakeScopeExit([&m, &mark] { m.parser().release(mark); });
 
-  CodeNode* funNode = nullptr;
+  FunctionNode* funNode = nullptr;
   unsigned line = 0;
   if (!ParseFunction(m, &funNode, &line)) {
     return false;
@@ -6358,11 +6350,10 @@ static bool CheckModuleEnd(ModuleValidator<Unit>& m) {
 
 template <typename Unit>
 static SharedModule CheckModule(JSContext* cx, AsmJSParser<Unit>& parser,
-                                ParseNode* stmtList, UniqueLinkData* linkData,
-                                unsigned* time) {
+                                ParseNode* stmtList, unsigned* time) {
   int64_t before = PRMJ_Now();
 
-  CodeNode* moduleFunctionNode = parser.pc->functionBox()->functionNode;
+  FunctionNode* moduleFunctionNode = parser.pc->functionBox()->functionNode;
 
   ModuleValidator<Unit> m(cx, parser, moduleFunctionNode);
   if (!m.init()) {
@@ -6409,7 +6400,7 @@ static SharedModule CheckModule(JSContext* cx, AsmJSParser<Unit>& parser,
     return nullptr;
   }
 
-  SharedModule module = m.finish(linkData);
+  SharedModule module = m.finish();
   if (!module) {
     return nullptr;
   }
@@ -6994,481 +6985,6 @@ static JSFunction* NewAsmJSModuleFunction(JSContext* cx, JSFunction* origFun,
 }
 
 /*****************************************************************************/
-// Caching and cloning
-
-size_t AsmJSGlobal::serializedSize() const {
-  return sizeof(pod) + field_.serializedSize();
-}
-
-uint8_t* AsmJSGlobal::serialize(uint8_t* cursor) const {
-  cursor = WriteBytes(cursor, &pod, sizeof(pod));
-  cursor = field_.serialize(cursor);
-  return cursor;
-}
-
-const uint8_t* AsmJSGlobal::deserialize(const uint8_t* cursor) {
-  (cursor = ReadBytes(cursor, &pod, sizeof(pod))) &&
-      (cursor = field_.deserialize(cursor));
-  return cursor;
-}
-
-size_t AsmJSGlobal::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const {
-  return field_.sizeOfExcludingThis(mallocSizeOf);
-}
-
-size_t AsmJSMetadata::serializedSize() const {
-  return Metadata::serializedSize() + sizeof(pod()) +
-         SerializedVectorSize(asmJSGlobals) +
-         SerializedPodVectorSize(asmJSImports) +
-         SerializedPodVectorSize(asmJSExports) +
-         SerializedVectorSize(asmJSFuncNames) +
-         globalArgumentName.serializedSize() +
-         importArgumentName.serializedSize() +
-         bufferArgumentName.serializedSize();
-}
-
-uint8_t* AsmJSMetadata::serialize(uint8_t* cursor) const {
-  cursor = Metadata::serialize(cursor);
-  cursor = WriteBytes(cursor, &pod(), sizeof(pod()));
-  cursor = SerializeVector(cursor, asmJSGlobals);
-  cursor = SerializePodVector(cursor, asmJSImports);
-  cursor = SerializePodVector(cursor, asmJSExports);
-  cursor = SerializeVector(cursor, asmJSFuncNames);
-  cursor = globalArgumentName.serialize(cursor);
-  cursor = importArgumentName.serialize(cursor);
-  cursor = bufferArgumentName.serialize(cursor);
-  return cursor;
-}
-
-const uint8_t* AsmJSMetadata::deserialize(const uint8_t* cursor) {
-  (cursor = Metadata::deserialize(cursor)) &&
-      (cursor = ReadBytes(cursor, &pod(), sizeof(pod()))) &&
-      (cursor = DeserializeVector(cursor, &asmJSGlobals)) &&
-      (cursor = DeserializePodVector(cursor, &asmJSImports)) &&
-      (cursor = DeserializePodVector(cursor, &asmJSExports)) &&
-      (cursor = DeserializeVector(cursor, &asmJSFuncNames)) &&
-      (cursor = globalArgumentName.deserialize(cursor)) &&
-      (cursor = importArgumentName.deserialize(cursor)) &&
-      (cursor = bufferArgumentName.deserialize(cursor));
-  cacheResult = CacheResult::Hit;
-  return cursor;
-}
-
-size_t AsmJSMetadata::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const {
-  return Metadata::sizeOfExcludingThis(mallocSizeOf) +
-         SizeOfVectorExcludingThis(asmJSGlobals, mallocSizeOf) +
-         asmJSImports.sizeOfExcludingThis(mallocSizeOf) +
-         asmJSExports.sizeOfExcludingThis(mallocSizeOf) +
-         SizeOfVectorExcludingThis(asmJSFuncNames, mallocSizeOf) +
-         globalArgumentName.sizeOfExcludingThis(mallocSizeOf) +
-         importArgumentName.sizeOfExcludingThis(mallocSizeOf) +
-         bufferArgumentName.sizeOfExcludingThis(mallocSizeOf);
-}
-
-namespace {
-
-// Assumptions captures ambient state that must be the same when compiling and
-// deserializing a module for the compiled code to be valid. If it's not, then
-// the module must be recompiled from scratch.
-
-struct Assumptions {
-  uint32_t cpuId;
-  JS::BuildIdCharVector buildId;
-
-  Assumptions();
-  bool init();
-
-  bool operator==(const Assumptions& rhs) const;
-  bool operator!=(const Assumptions& rhs) const { return !(*this == rhs); }
-
-  size_t serializedSize() const;
-  uint8_t* serialize(uint8_t* cursor) const;
-  const uint8_t* deserialize(const uint8_t* cursor, size_t remain);
-};
-
-Assumptions::Assumptions() : cpuId(ObservedCPUFeatures()), buildId() {}
-
-bool Assumptions::init() { return GetBuildId && GetBuildId(&buildId); }
-
-bool Assumptions::operator==(const Assumptions& rhs) const {
-  return cpuId == rhs.cpuId && buildId.length() == rhs.buildId.length() &&
-         ArrayEqual(buildId.begin(), rhs.buildId.begin(), buildId.length());
-}
-
-size_t Assumptions::serializedSize() const {
-  return sizeof(uint32_t) + SerializedPodVectorSize(buildId);
-}
-
-uint8_t* Assumptions::serialize(uint8_t* cursor) const {
-  // The format of serialized Assumptions must never change in a way that
-  // would cause old cache files written with by an old build-id to match the
-  // assumptions of a different build-id.
-
-  cursor = WriteScalar<uint32_t>(cursor, cpuId);
-  cursor = SerializePodVector(cursor, buildId);
-  return cursor;
-}
-
-const uint8_t* Assumptions::deserialize(const uint8_t* cursor, size_t remain) {
-  (cursor = ReadScalarChecked<uint32_t>(cursor, &remain, &cpuId)) &&
-      (cursor = DeserializePodVectorChecked(cursor, &remain, &buildId));
-  return cursor;
-}
-
-class ModuleChars {
- protected:
-  uint32_t isFunCtor_;
-  Vector<CacheableChars, 0, SystemAllocPolicy> funCtorArgs_;
-
- public:
-  static uint32_t beginOffset(AsmJSParser<char16_t>& parser) {
-    return parser.pc->functionBox()->functionNode->pn_pos.begin;
-  }
-
-  static uint32_t endOffset(AsmJSParser<char16_t>& parser) {
-    TokenPos pos(0, 0);  // initialize to silence GCC warning
-    MOZ_ALWAYS_TRUE(
-        parser.tokenStream.peekTokenPos(&pos, TokenStreamShared::Operand));
-    return pos.end;
-  }
-};
-
-class ModuleCharsForStore : ModuleChars {
-  uint32_t uncompressedSize_;
-  uint32_t compressedSize_;
-  Vector<char, 0, SystemAllocPolicy> compressedBuffer_;
-
- public:
-  bool init(AsmJSParser<char16_t>& parser) {
-    MOZ_ASSERT(beginOffset(parser) < endOffset(parser));
-
-    uncompressedSize_ =
-        (endOffset(parser) - beginOffset(parser)) * sizeof(char16_t);
-    size_t maxCompressedSize = LZ4::maxCompressedSize(uncompressedSize_);
-    if (maxCompressedSize < uncompressedSize_) {
-      return false;
-    }
-
-    if (!compressedBuffer_.resize(maxCompressedSize)) {
-      return false;
-    }
-
-    const char16_t* chars =
-        parser.tokenStream.codeUnitPtrAt(beginOffset(parser));
-    const char* source = reinterpret_cast<const char*>(chars);
-    size_t compressedSize =
-        LZ4::compress(source, uncompressedSize_, compressedBuffer_.begin());
-    if (!compressedSize || compressedSize > UINT32_MAX) {
-      return false;
-    }
-
-    compressedSize_ = compressedSize;
-
-    // For a function statement or named function expression:
-    //   function f(x,y,z) { abc }
-    // the range [beginOffset, endOffset) captures the source:
-    //   f(x,y,z) { abc }
-    // An unnamed function expression captures the same thing, sans 'f'.
-    // Since asm.js modules do not contain any free variables, equality of
-    // [beginOffset, endOffset) is sufficient to guarantee identical code
-    // generation, modulo Assumptions.
-    //
-    // For functions created with 'new Function', function arguments are
-    // not present in the source so we must manually explicitly serialize
-    // and match the formals as a Vector of PropertyName.
-    isFunCtor_ = parser.pc->isStandaloneFunctionBody();
-    if (isFunCtor_) {
-      unsigned numArgs;
-      CodeNode* functionNode = parser.pc->functionBox()->functionNode;
-      ParseNode* arg = FunctionFormalParametersList(functionNode, &numArgs);
-      for (unsigned i = 0; i < numArgs; i++, arg = arg->pn_next) {
-        UniqueChars name =
-            StringToNewUTF8CharsZ(nullptr, *arg->as<NameNode>().name());
-        if (!name || !funCtorArgs_.append(std::move(name))) {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  size_t serializedSize() const {
-    return sizeof(uint32_t) + sizeof(uint32_t) + compressedSize_ +
-           sizeof(uint32_t) +
-           (isFunCtor_ ? SerializedVectorSize(funCtorArgs_) : 0);
-  }
-
-  uint8_t* serialize(uint8_t* cursor) const {
-    cursor = WriteScalar<uint32_t>(cursor, uncompressedSize_);
-    cursor = WriteScalar<uint32_t>(cursor, compressedSize_);
-    cursor = WriteBytes(cursor, compressedBuffer_.begin(), compressedSize_);
-    cursor = WriteScalar<uint32_t>(cursor, isFunCtor_);
-    if (isFunCtor_) {
-      cursor = SerializeVector(cursor, funCtorArgs_);
-    }
-    return cursor;
-  }
-};
-
-class ModuleCharsForLookup : ModuleChars {
-  Vector<char16_t, 0, SystemAllocPolicy> chars_;
-
- public:
-  const uint8_t* deserialize(const uint8_t* cursor) {
-    uint32_t uncompressedSize;
-    cursor = ReadScalar<uint32_t>(cursor, &uncompressedSize);
-
-    uint32_t compressedSize;
-    cursor = ReadScalar<uint32_t>(cursor, &compressedSize);
-
-    if (!chars_.resize(uncompressedSize / sizeof(char16_t))) {
-      return nullptr;
-    }
-
-    const char* source = reinterpret_cast<const char*>(cursor);
-    char* dest = reinterpret_cast<char*>(chars_.begin());
-    if (!LZ4::decompress(source, dest, uncompressedSize)) {
-      return nullptr;
-    }
-
-    cursor += compressedSize;
-
-    cursor = ReadScalar<uint32_t>(cursor, &isFunCtor_);
-    if (isFunCtor_) {
-      cursor = DeserializeVector(cursor, &funCtorArgs_);
-    }
-
-    return cursor;
-  }
-
-  bool match(AsmJSParser<char16_t>& parser) const {
-    const char16_t* parseBegin =
-        parser.tokenStream.codeUnitPtrAt(beginOffset(parser));
-    const char16_t* parseLimit = parser.tokenStream.rawLimit();
-    MOZ_ASSERT(parseLimit >= parseBegin);
-    if (uint32_t(parseLimit - parseBegin) < chars_.length()) {
-      return false;
-    }
-    if (!ArrayEqual(chars_.begin(), parseBegin, chars_.length())) {
-      return false;
-    }
-    if (isFunCtor_ != parser.pc->isStandaloneFunctionBody()) {
-      return false;
-    }
-    if (isFunCtor_) {
-      // For function statements, the closing } is included as the last
-      // character of the matched source. For Function constructor,
-      // parsing terminates with EOF which we must explicitly check. This
-      // prevents
-      //   new Function('"use asm"; function f() {} return f')
-      // from incorrectly matching
-      //   new Function('"use asm"; function f() {} return ff')
-      if (parseBegin + chars_.length() != parseLimit) {
-        return false;
-      }
-      unsigned numArgs;
-      CodeNode* functionNode = parser.pc->functionBox()->functionNode;
-      ParseNode* arg = FunctionFormalParametersList(functionNode, &numArgs);
-      if (funCtorArgs_.length() != numArgs) {
-        return false;
-      }
-      for (unsigned i = 0; i < funCtorArgs_.length(); i++, arg = arg->pn_next) {
-        UniqueChars name =
-            StringToNewUTF8CharsZ(nullptr, *arg->as<NameNode>().name());
-        if (!name || strcmp(funCtorArgs_[i].get(), name.get())) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-};
-
-struct ScopedCacheEntryOpenedForWrite {
-  JSContext* cx;
-  const size_t serializedSize;
-  uint8_t* memory;
-  intptr_t handle;
-
-  ScopedCacheEntryOpenedForWrite(JSContext* cx, size_t serializedSize)
-      : cx(cx), serializedSize(serializedSize), memory(nullptr), handle(-1) {}
-
-  ~ScopedCacheEntryOpenedForWrite() {
-    if (memory) {
-      cx->asmJSCacheOps().closeEntryForWrite(serializedSize, memory, handle);
-    }
-  }
-};
-
-struct ScopedCacheEntryOpenedForRead {
-  JSContext* cx;
-  size_t serializedSize;
-  const uint8_t* memory;
-  intptr_t handle;
-
-  explicit ScopedCacheEntryOpenedForRead(JSContext* cx)
-      : cx(cx), serializedSize(0), memory(nullptr), handle(0) {}
-
-  ~ScopedCacheEntryOpenedForRead() {
-    if (memory) {
-      cx->asmJSCacheOps().closeEntryForRead(serializedSize, memory, handle);
-    }
-  }
-};
-
-}  // unnamed namespace
-
-static JS::AsmJSCacheResult StoreAsmJSModuleInCache(
-    AsmJSParser<char16_t>& parser, const Module& module,
-    const LinkData& linkData, JSContext* cx) {
-  ModuleCharsForStore moduleChars;
-  if (!moduleChars.init(parser)) {
-    return JS::AsmJSCache_InternalError;
-  }
-
-  size_t moduleSize = module.serializedSize(linkData);
-  MOZ_RELEASE_ASSERT(moduleSize <= UINT32_MAX);
-
-  Assumptions assumptions;
-  if (!assumptions.init()) {
-    return JS::AsmJSCache_InternalError;
-  }
-
-  size_t serializedSize = assumptions.serializedSize() + sizeof(uint32_t) +
-                          moduleSize + moduleChars.serializedSize();
-
-  JS::OpenAsmJSCacheEntryForWriteOp open =
-      cx->asmJSCacheOps().openEntryForWrite;
-  if (!open) {
-    return JS::AsmJSCache_Disabled_Internal;
-  }
-
-  const char16_t* begin =
-      parser.tokenStream.codeUnitPtrAt(ModuleChars::beginOffset(parser));
-  const char16_t* end =
-      parser.tokenStream.codeUnitPtrAt(ModuleChars::endOffset(parser));
-
-  ScopedCacheEntryOpenedForWrite entry(cx, serializedSize);
-  JS::AsmJSCacheResult openResult = open(
-      cx->global(), begin, end, serializedSize, &entry.memory, &entry.handle);
-  if (openResult != JS::AsmJSCache_Success) {
-    return openResult;
-  }
-
-  uint8_t* cursor = entry.memory;
-
-  cursor = assumptions.serialize(cursor);
-
-  cursor = WriteScalar<uint32_t>(cursor, moduleSize);
-
-  module.serialize(linkData, cursor, moduleSize);
-  cursor += moduleSize;
-
-  cursor = moduleChars.serialize(cursor);
-
-  MOZ_RELEASE_ASSERT(cursor == entry.memory + serializedSize);
-
-  return JS::AsmJSCache_Success;
-}
-
-static bool LookupAsmJSModuleInCache(JSContext* cx,
-                                     AsmJSParser<char16_t>& parser,
-                                     bool* loadedFromCache,
-                                     SharedModule* module,
-                                     UniqueChars* compilationTimeReport) {
-  int64_t before = PRMJ_Now();
-
-  *loadedFromCache = false;
-
-  JS::OpenAsmJSCacheEntryForReadOp open = cx->asmJSCacheOps().openEntryForRead;
-  if (!open) {
-    return true;
-  }
-
-  const char16_t* begin =
-      parser.tokenStream.codeUnitPtrAt(ModuleChars::beginOffset(parser));
-  const char16_t* limit = parser.tokenStream.rawLimit();
-
-  ScopedCacheEntryOpenedForRead entry(cx);
-  if (!open(cx->global(), begin, limit, &entry.serializedSize, &entry.memory,
-            &entry.handle)) {
-    return true;
-  }
-
-  const uint8_t* cursor = entry.memory;
-
-  Assumptions deserializedAssumptions;
-  cursor = deserializedAssumptions.deserialize(cursor, entry.serializedSize);
-  if (!cursor) {
-    return true;
-  }
-
-  Assumptions currentAssumptions;
-  if (!currentAssumptions.init() ||
-      currentAssumptions != deserializedAssumptions) {
-    return true;
-  }
-
-  uint32_t moduleSize;
-  cursor = ReadScalar<uint32_t>(cursor, &moduleSize);
-  if (!cursor) {
-    return true;
-  }
-
-  MutableAsmJSMetadata asmJSMetadata = cx->new_<AsmJSMetadata>();
-  if (!asmJSMetadata) {
-    return false;
-  }
-
-  *module = Module::deserialize(cursor, moduleSize, asmJSMetadata.get());
-  if (!*module) {
-    ReportOutOfMemory(cx);
-    return false;
-  }
-  cursor += moduleSize;
-
-  // Due to the hash comparison made by openEntryForRead, this should succeed
-  // with high probability.
-  ModuleCharsForLookup moduleChars;
-  cursor = moduleChars.deserialize(cursor);
-  if (!moduleChars.match(parser)) {
-    return true;
-  }
-
-  // Don't punish release users by crashing if there is a programmer error
-  // here, just gracefully return with a cache miss.
-#ifdef NIGHTLY_BUILD
-  MOZ_RELEASE_ASSERT(cursor == entry.memory + entry.serializedSize);
-#endif
-  if (cursor != entry.memory + entry.serializedSize) {
-    return true;
-  }
-
-  // See AsmJSMetadata comment as well as ModuleValidator::init().
-  asmJSMetadata->toStringStart = parser.pc->functionBox()->toStringStart;
-  asmJSMetadata->srcStart =
-      parser.pc->functionBox()->functionNode->body()->pn_pos.begin;
-  asmJSMetadata->strict =
-      parser.pc->sc()->strict() && !parser.pc->sc()->hasExplicitUseStrict();
-  asmJSMetadata->scriptSource.reset(parser.ss);
-
-  if (!parser.tokenStream.advance(asmJSMetadata->srcEndBeforeCurly())) {
-    return false;
-  }
-
-  int64_t after = PRMJ_Now();
-  int ms = (after - before) / PRMJ_USEC_PER_MSEC;
-  *compilationTimeReport = JS_smprintf("loaded from cache in %dms", ms);
-  if (!*compilationTimeReport) {
-    return false;
-  }
-
-  *loadedFromCache = true;
-  return true;
-}
-
-/*****************************************************************************/
 // Top-level js::CompileAsmJS
 
 static bool NoExceptionPending(JSContext* cx) {
@@ -7476,8 +6992,19 @@ static bool NoExceptionPending(JSContext* cx) {
 }
 
 static bool SuccessfulValidation(frontend::ParserBase& parser,
-                                 UniqueChars str) {
-  return parser.warningNoOffset(JSMSG_USE_ASM_TYPE_OK, str.get());
+                                 unsigned compilationTime) {
+  constexpr unsigned errNum =
+#ifdef JS_MORE_DETERMINISTIC
+      JSMSG_USE_ASM_TYPE_OK_NO_TIME
+#else
+      JSMSG_USE_ASM_TYPE_OK
+#endif
+      ;
+
+  char timeChars[20];
+  SprintfLiteral(timeChars, "%u", compilationTime);
+
+  return parser.warningNoOffset(errNum, timeChars);
 }
 
 static bool TypeFailureWarning(frontend::ParserBase& parser, const char* str) {
@@ -7530,59 +7057,9 @@ static bool EstablishPreconditions(JSContext* cx,
   return true;
 }
 
-static UniqueChars BuildConsoleMessage(unsigned time,
-                                       JS::AsmJSCacheResult cacheResult) {
-#ifndef JS_MORE_DETERMINISTIC
-  const char* cacheString = "";
-  switch (cacheResult) {
-    case JS::AsmJSCache_Success:
-      cacheString = "stored in cache";
-      break;
-    case JS::AsmJSCache_ModuleTooSmall:
-      cacheString = "not stored in cache (too small to benefit)";
-      break;
-    case JS::AsmJSCache_SynchronousScript:
-      cacheString =
-          "unable to cache asm.js in synchronous scripts; try loading "
-          "asm.js via <script async> or createElement('script')";
-      break;
-    case JS::AsmJSCache_QuotaExceeded:
-      cacheString = "not enough temporary storage quota to store in cache";
-      break;
-    case JS::AsmJSCache_StorageInitFailure:
-      cacheString = "storage initialization failed (consider filing a bug)";
-      break;
-    case JS::AsmJSCache_Disabled_Internal:
-      cacheString =
-          "caching disabled by internal configuration (consider filing a bug)";
-      break;
-    case JS::AsmJSCache_Disabled_ShellFlags:
-      cacheString = "caching disabled by missing command-line arguments";
-      break;
-    case JS::AsmJSCache_Disabled_JitInspector:
-      cacheString = "caching disabled by active JIT inspector";
-      break;
-    case JS::AsmJSCache_InternalError:
-      cacheString =
-          "unable to store in cache due to internal error (consider filing a "
-          "bug)";
-      break;
-    case JS::AsmJSCache_Disabled_PrivateBrowsing:
-      cacheString = "caching disabled by private browsing mode";
-      break;
-    case JS::AsmJSCache_LIMIT:
-      MOZ_CRASH("bad AsmJSCacheResult");
-      break;
-  }
-
-  return JS_smprintf("total compilation time %dms; %s", time, cacheString);
-#else
-  return DuplicateString("");
-#endif
-}
-
-bool js::CompileAsmJS(JSContext* cx, AsmJSParser<char16_t>& parser,
-                      ParseNode* stmtList, bool* validated) {
+template <typename Unit>
+static bool DoCompileAsmJS(JSContext* cx, AsmJSParser<Unit>& parser,
+                           ParseNode* stmtList, bool* validated) {
   *validated = false;
 
   // Various conditions disable asm.js optimizations.
@@ -7590,40 +7067,12 @@ bool js::CompileAsmJS(JSContext* cx, AsmJSParser<char16_t>& parser,
     return NoExceptionPending(cx);
   }
 
-  // Before spending any time parsing the module, try to look it up in the
-  // embedding's cache using the chars about to be parsed as the key.
-  bool loadedFromCache;
-  SharedModule module;
-  UniqueChars message;
-  if (!LookupAsmJSModuleInCache(cx, parser, &loadedFromCache, &module,
-                                &message)) {
-    return false;
-  }
-
-  // If not present in the cache, parse, validate and generate code in a
-  // single linear pass over the chars of the asm.js module.
-  if (!loadedFromCache) {
-    // "Checking" parses, validates and compiles, producing a fully compiled
-    // WasmModuleObject as result.
-    UniqueLinkData linkData;
-    unsigned time;
-    module = CheckModule(cx, parser, stmtList, &linkData, &time);
-    if (!module) {
-      return NoExceptionPending(cx);
-    }
-
-    // Try to store the AsmJSModule in the embedding's cache. The
-    // AsmJSModule must be stored before static linking since static linking
-    // specializes the AsmJSModule to the current process's address space
-    // and therefore must be executed after a cache hit.
-    JS::AsmJSCacheResult cacheResult =
-        StoreAsmJSModuleInCache(parser, *module, *linkData, cx);
-
-    // Build the string message to display in the developer console.
-    message = BuildConsoleMessage(time, cacheResult);
-    if (!message) {
-      return NoExceptionPending(cx);
-    }
+  // "Checking" parses, validates and compiles, producing a fully compiled
+  // WasmModuleObject as result.
+  unsigned time;
+  SharedModule module = CheckModule(cx, parser, stmtList, &time);
+  if (!module) {
+    return NoExceptionPending(cx);
   }
 
   // Hand over ownership to a GC object wrapper which can then be referenced
@@ -7650,10 +7099,21 @@ bool js::CompileAsmJS(JSContext* cx, AsmJSParser<char16_t>& parser,
   MOZ_ASSERT(funbox->function()->isInterpreted());
   funbox->clobberFunction(moduleFun);
 
-  // Success! Write to the console with a "warning" message.
+  // Success! Write to the console with a "warning" message indicating
+  // total compilation time.
   *validated = true;
-  SuccessfulValidation(parser, std::move(message));
+  SuccessfulValidation(parser, time);
   return NoExceptionPending(cx);
+}
+
+bool js::CompileAsmJS(JSContext* cx, AsmJSParser<char16_t>& parser,
+                      ParseNode* stmtList, bool* validated) {
+  return DoCompileAsmJS(cx, parser, stmtList, validated);
+}
+
+bool js::CompileAsmJS(JSContext* cx, AsmJSParser<Utf8Unit>& parser,
+                      ParseNode* stmtList, bool* validated) {
+  return DoCompileAsmJS(cx, parser, stmtList, validated);
 }
 
 /*****************************************************************************/
@@ -7702,16 +7162,7 @@ static JSFunction* MaybeWrappedNativeFunction(const Value& v) {
     return nullptr;
   }
 
-  JSObject* obj = CheckedUnwrap(&v.toObject());
-  if (!obj) {
-    return nullptr;
-  }
-
-  if (!obj->is<JSFunction>()) {
-    return nullptr;
-  }
-
-  return &obj->as<JSFunction>();
+  return v.toObject().maybeUnwrapIf<JSFunction>();
 }
 
 bool js::IsAsmJSModule(JSContext* cx, unsigned argc, Value* vp) {
@@ -7735,26 +7186,6 @@ bool js::IsAsmJSFunction(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   args.rval().set(BooleanValue(rval));
-  return true;
-}
-
-bool js::IsAsmJSModuleLoadedFromCache(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-
-  JSFunction* fun = MaybeWrappedNativeFunction(args.get(0));
-  if (!fun || !IsAsmJSModule(fun)) {
-    JS_ReportErrorNumberUTF8(
-        cx, GetErrorMessage, nullptr, JSMSG_USE_ASM_TYPE_FAIL,
-        "argument passed to isAsmJSModuleLoadedFromCache is not a "
-        "validated asm.js module");
-    return false;
-  }
-
-  bool loadedFromCache =
-      AsmJSModuleFunctionToModule(fun).metadata().asAsmJS().cacheResult ==
-      CacheResult::Hit;
-
-  args.rval().set(BooleanValue(loadedFromCache));
   return true;
 }
 

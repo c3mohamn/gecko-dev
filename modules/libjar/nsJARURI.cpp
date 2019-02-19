@@ -43,7 +43,6 @@ NS_INTERFACE_MAP_BEGIN(nsJARURI)
   NS_INTERFACE_MAP_ENTRY(nsISerializable)
   NS_INTERFACE_MAP_ENTRY(nsIClassInfo)
   NS_INTERFACE_MAP_ENTRY(nsINestedURI)
-  NS_INTERFACE_MAP_ENTRY(nsIIPCSerializableURI)
   NS_INTERFACE_MAP_ENTRY_CONCRETE(nsJARURI)
 NS_INTERFACE_MAP_END
 
@@ -137,9 +136,8 @@ nsJARURI::Write(nsIObjectOutputStream *aOutputStream) {
 // nsIClassInfo methods:
 
 NS_IMETHODIMP
-nsJARURI::GetInterfaces(uint32_t *count, nsIID ***array) {
-  *count = 0;
-  *array = nullptr;
+nsJARURI::GetInterfaces(nsTArray<nsIID> &array) {
+  array.Clear();
   return NS_OK;
 }
 
@@ -475,14 +473,13 @@ nsJARURI::EqualsExceptRef(nsIURI *other, bool *result) {
 
 NS_IMETHODIMP
 nsJARURI::SchemeIs(const char *i_Scheme, bool *o_Equals) {
-  NS_ENSURE_ARG_POINTER(o_Equals);
-  if (!i_Scheme) return NS_ERROR_INVALID_ARG;
-
-  if (*i_Scheme == 'j' || *i_Scheme == 'J') {
-    *o_Equals = PL_strcasecmp("jar", i_Scheme) ? false : true;
-  } else {
+  MOZ_ASSERT(o_Equals);
+  if (!i_Scheme) {
     *o_Equals = false;
+    return NS_OK;
   }
+
+  *o_Equals = PL_strcasecmp("jar", i_Scheme) ? false : true;
   return NS_OK;
 }
 
@@ -766,9 +763,6 @@ NS_IMETHODIMP
 nsJARURI::GetInnermostURI(nsIURI **uri) {
   return NS_ImplGetInnermostURI(this, uri);
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// nsIIPCSerializableURI methods:
 
 void nsJARURI::Serialize(URIParams &aParams) {
   JARURIParams params;

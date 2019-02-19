@@ -102,15 +102,18 @@ bool nsDisplayColumnRule::CreateWebRenderCommands(
 nsContainerFrame* NS_NewColumnSetFrame(nsIPresShell* aPresShell,
                                        ComputedStyle* aStyle,
                                        nsFrameState aStateFlags) {
-  nsColumnSetFrame* it = new (aPresShell) nsColumnSetFrame(aStyle);
+  nsColumnSetFrame* it =
+      new (aPresShell) nsColumnSetFrame(aStyle, aPresShell->GetPresContext());
   it->AddStateBits(aStateFlags);
   return it;
 }
 
 NS_IMPL_FRAMEARENA_HELPERS(nsColumnSetFrame)
 
-nsColumnSetFrame::nsColumnSetFrame(ComputedStyle* aStyle)
-    : nsContainerFrame(aStyle, kClassID), mLastBalanceBSize(NS_INTRINSICSIZE) {}
+nsColumnSetFrame::nsColumnSetFrame(ComputedStyle* aStyle,
+                                   nsPresContext* aPresContext)
+    : nsContainerFrame(aStyle, aPresContext, kClassID),
+      mLastBalanceBSize(NS_INTRINSICSIZE) {}
 
 void nsColumnSetFrame::ForEachColumnRule(
     const std::function<void(const nsRect& lineRect)>& aSetLineRect,
@@ -190,7 +193,6 @@ void nsColumnSetFrame::CreateBorderRenderers(
   else
     ruleStyle = colStyle->mColumnRuleStyle;
 
-  nsPresContext* presContext = PresContext();
   nscoord ruleWidth = colStyle->GetComputedColumnRuleWidth();
   if (!ruleWidth) return;
 
@@ -198,12 +200,13 @@ void nsColumnSetFrame::CreateBorderRenderers(
   nscolor ruleColor =
       GetVisitedDependentColor(&nsStyleColumn::mColumnRuleColor);
 
+  nsPresContext* presContext = PresContext();
   // In order to re-use a large amount of code, we treat the column rule as a
   // border. We create a new border style object and fill in all the details of
   // the column rule as the left border. PaintBorder() does all the rendering
   // for us, so we not only save an enormous amount of code but we'll support
   // all the line styles that we support on borders!
-  nsStyleBorder border(presContext);
+  nsStyleBorder border(*presContext->Document());
   Sides skipSides;
   if (isVertical) {
     border.SetBorderWidth(eSideTop, ruleWidth);
@@ -1246,7 +1249,7 @@ void nsColumnSetFrame::AppendDirectlyOwnedAnonBoxes(
     return;
   }
 
-  MOZ_ASSERT(column->Style()->GetPseudo() == nsCSSAnonBoxes::columnContent(),
+  MOZ_ASSERT(column->Style()->GetPseudoType() == PseudoStyleType::columnContent,
              "What sort of child is this?");
   aResult.AppendElement(OwnedAnonBox(column));
 }

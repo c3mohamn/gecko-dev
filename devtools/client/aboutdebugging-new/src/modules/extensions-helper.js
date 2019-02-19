@@ -9,7 +9,6 @@ loader.lazyImporter(this, "BrowserToolboxProcess",
   "resource://devtools/client/framework/ToolboxProcess.jsm");
 loader.lazyImporter(this, "AddonManager", "resource://gre/modules/AddonManager.jsm");
 
-const {TargetFactory} = require("devtools/client/framework/target");
 const {Toolbox} = require("devtools/client/framework/toolbox");
 
 const {gDevTools} = require("devtools/client/framework/devtools");
@@ -53,18 +52,12 @@ exports.debugLocalAddon = async function(addonID) {
  *        Required for remote debugging.
  */
 exports.debugRemoteAddon = async function(id, client) {
-  const addonTargetFront = await client.mainRoot.getAddon({ id });
+  const addonFront = await client.mainRoot.getAddon({ id });
+
+  const target = await addonFront.connect();
 
   // Close previous addon debugging toolbox.
   closeToolbox();
-
-  const options = {
-    activeTab: addonTargetFront,
-    chrome: true,
-    client,
-  };
-
-  const target = await TargetFactory.forRemoteTab(options);
 
   const hostType = Toolbox.HostType.WINDOW;
   remoteAddonToolbox = await gDevTools.showToolbox(target, null, hostType);

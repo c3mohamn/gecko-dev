@@ -42,6 +42,7 @@
 #include "nsIContentInlines.h"
 #include "mozilla/dom/Document.h"
 #include "nsIFrame.h"
+#include "nsFrameLoaderOwner.h"
 #include "nsITextControlElement.h"
 #include "nsIWidget.h"
 #include "nsPresContext.h"
@@ -85,7 +86,7 @@
 #include "mozilla/dom/DataTransfer.h"
 #include "nsContentAreaDragDrop.h"
 #ifdef MOZ_XUL
-#include "nsTreeBodyFrame.h"
+#  include "nsTreeBodyFrame.h"
 #endif
 #include "nsIController.h"
 #include "nsICommandParams.h"
@@ -101,7 +102,7 @@
 #include "nsIObjectLoadingContent.h"
 
 #ifdef XP_MACOSX
-#import <ApplicationServices/ApplicationServices.h>
+#  import <ApplicationServices/ApplicationServices.h>
 #endif
 
 namespace mozilla {
@@ -221,12 +222,14 @@ bool EventStateManager::WheelPrefs::sHonoursRootForAutoDir = false;
 EventStateManager::DeltaAccumulator*
     EventStateManager::DeltaAccumulator::sInstance = nullptr;
 
+constexpr const StyleCursorKind kInvalidCursorKind =
+    static_cast<StyleCursorKind>(255);
+
 EventStateManager::EventStateManager()
-    : mLockCursor(0),
+    : mLockCursor(kInvalidCursorKind),
       mLastFrameConsumedSetCursor(false),
-      mCurrentTarget(nullptr)
+      mCurrentTarget(nullptr),
       // init d&d gesture state machine variables
-      ,
       mGestureDownPoint(0, 0),
       mGestureModifiers(0),
       mGestureDownButtons(0),
@@ -1341,7 +1344,7 @@ bool EventStateManager::HandleCrossProcessEvent(WidgetEvent* aEvent,
   // then dispatch the event to the remote content they represent.
   for (uint32_t i = 0; i < targets.Length(); ++i) {
     nsIContent* target = targets[i];
-    nsCOMPtr<nsIFrameLoaderOwner> loaderOwner = do_QueryInterface(target);
+    RefPtr<nsFrameLoaderOwner> loaderOwner = do_QueryObject(target);
     if (!loaderOwner) {
       continue;
     }
@@ -2820,6 +2823,9 @@ void EventStateManager::DecideGestureEvent(WidgetGestureNotifyEvent* aEvent,
 #ifdef XP_MACOSX
 static bool NodeAllowsClickThrough(nsINode* aNode) {
   while (aNode) {
+    if (aNode->IsXULElement(nsGkAtoms::browser)) {
+      return false;
+    }
     if (aNode->IsXULElement()) {
       mozilla::dom::Element* element = aNode->AsElement();
       static Element::AttrValuesArray strings[] = {nsGkAtoms::always,
@@ -3601,6 +3607,105 @@ void EventStateManager::ClearFrameRefs(nsIFrame* aFrame) {
   }
 }
 
+static Maybe<gfx::IntPoint> ComputeHotspot(const nsIFrame::Cursor& aCursor) {
+  if (!aCursor.mContainer) {
+    return {};
+  }
+
+  // css3-ui says to use the CSS-specified hotspot if present,
+  // otherwise use the intrinsic hotspot, otherwise use the top left
+  // corner.
+  uint32_t hotspotX, hotspotY;
+  if (aCursor.mHaveHotspot) {
+    int32_t imgWidth, imgHeight;
+    aCursor.mContainer->GetWidth(&imgWidth);
+    aCursor.mContainer->GetHeight(&imgHeight);
+
+    // XXX std::max(NS_lround(x), 0)?
+    hotspotX = aCursor.mHotspotX > 0.0f ? uint32_t(aCursor.mHotspotX + 0.5f)
+                                        : uint32_t(0);
+    if (hotspotX >= uint32_t(imgWidth)) hotspotX = imgWidth - 1;
+    hotspotY = aCursor.mHotspotY > 0.0f ? uint32_t(aCursor.mHotspotY + 0.5f)
+                                        : uint32_t(0);
+    if (hotspotY >= uint32_t(imgHeight)) hotspotY = imgHeight - 1;
+  } else {
+    hotspotX = 0;
+    hotspotY = 0;
+    nsCOMPtr<nsIProperties> props(do_QueryInterface(aCursor.mContainer));
+    if (props) {
+      nsCOMPtr<nsISupportsPRUint32> hotspotXWrap, hotspotYWrap;
+
+      props->Get("hotspotX", NS_GET_IID(nsISupportsPRUint32),
+                 getter_AddRefs(hotspotXWrap));
+      props->Get("hotspotY", NS_GET_IID(nsISupportsPRUint32),
+                 getter_AddRefs(hotspotYWrap));
+
+      if (hotspotXWrap) hotspotXWrap->GetData(&hotspotX);
+      if (hotspotYWrap) hotspotYWrap->GetData(&hotspotY);
+    }
+  }
+
+  return Some(gfx::IntPoint{hotspotX, hotspotY});
+}
+
+// Given the event that we're processing, and the computed cursor and hotspot,
+// determine whether the custom CSS cursor should be blocked (that is, not
+// honored).
+//
+// We will not honor it all of the following are true:
+//
+//  * layout.cursor.block.enabled is true.
+//  * the size of the custom cursor is bigger than layout.cursor.block.max-size.
+//  * the bounds of the cursor would end up outside of the viewport of the
+//    top-level content document.
+//
+// This is done in order to prevent hijacking the cursor, see bug 1445844 and
+// co.
+static bool ShouldBlockCustomCursor(nsPresContext* aPresContext,
+                                    WidgetEvent* aEvent,
+                                    const nsIFrame::Cursor& aCursor,
+                                    const Maybe<gfx::IntPoint>& aHotspot) {
+  if (!StaticPrefs::layout_cursor_block_enabled()) {
+    return false;
+  }
+  if (!aCursor.mContainer) {
+    return false;
+  }
+  MOZ_ASSERT(aHotspot);
+
+  int32_t width = 0;
+  int32_t height = 0;
+  aCursor.mContainer->GetWidth(&width);
+  aCursor.mContainer->GetHeight(&height);
+
+  int32_t maxSize = StaticPrefs::layout_cursor_block_max_size();
+
+  if (width <= maxSize && height <= maxSize) {
+    return false;
+  }
+
+  // We don't want to deal with iframes, just let them do their thing unless
+  // they intersect UI.
+  //
+  // TODO(emilio, bug 1525561): In a fission world, we should have a better way
+  // to find the event coordinates relative to the content area.
+  nsPresContext* topLevel =
+      aPresContext->GetToplevelContentDocumentPresContext();
+  if (!topLevel) {
+    return false;
+  }
+
+  nsPoint point = nsLayoutUtils::GetEventCoordinatesRelativeTo(
+      aEvent, topLevel->PresShell()->GetRootFrame());
+
+  nsSize size(CSSPixel::ToAppUnits(width), CSSPixel::ToAppUnits(height));
+  nsPoint hotspot(CSSPixel::ToAppUnits(aHotspot->x),
+                  CSSPixel::ToAppUnits(aHotspot->y));
+
+  nsRect cursorRect(point - hotspot, size);
+  return !topLevel->GetVisibleArea().Contains(cursorRect);
+}
+
 void EventStateManager::UpdateCursor(nsPresContext* aPresContext,
                                      WidgetEvent* aEvent,
                                      nsIFrame* aTargetFrame,
@@ -3609,13 +3714,12 @@ void EventStateManager::UpdateCursor(nsPresContext* aPresContext,
     return;
   }
 
-  int32_t cursor = NS_STYLE_CURSOR_DEFAULT;
+  auto cursor = StyleCursorKind::Default;
   imgIContainer* container = nullptr;
-  bool haveHotspot = false;
-  float hotspotX = 0.0f, hotspotY = 0.0f;
+  Maybe<gfx::IntPoint> hotspot;
 
   // If cursor is locked just use the locked one
-  if (mLockCursor) {
+  if (mLockCursor != kInvalidCursorKind) {
     cursor = mLockCursor;
   }
   // If not locked, look for correct cursor
@@ -3623,7 +3727,7 @@ void EventStateManager::UpdateCursor(nsPresContext* aPresContext,
     nsIFrame::Cursor framecursor;
     nsPoint pt =
         nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, aTargetFrame);
-    // Avoid setting cursor when the mouse is over a windowless pluign.
+    // Avoid setting cursor when the mouse is over a windowless plugin.
     if (NS_FAILED(aTargetFrame->GetCursor(pt, framecursor))) {
       if (XRE_IsContentProcess()) {
         mLastFrameConsumedSetCursor = true;
@@ -3646,9 +3750,11 @@ void EventStateManager::UpdateCursor(nsPresContext* aPresContext,
     }
     cursor = framecursor.mCursor;
     container = framecursor.mContainer;
-    haveHotspot = framecursor.mHaveHotspot;
-    hotspotX = framecursor.mHotspotX;
-    hotspotY = framecursor.mHotspotY;
+    hotspot = ComputeHotspot(framecursor);
+
+    if (ShouldBlockCustomCursor(aPresContext, aEvent, framecursor, hotspot)) {
+      container = nullptr;
+    }
   }
 
   if (nsContentUtils::UseActivityCursor()) {
@@ -3660,20 +3766,21 @@ void EventStateManager::UpdateCursor(nsPresContext* aPresContext,
     // Show busy cursor everywhere before page loads
     // and just replace the arrow cursor after page starts loading
     if (busyFlags & nsIDocShell::BUSY_FLAGS_BUSY &&
-        (cursor == NS_STYLE_CURSOR_AUTO || cursor == NS_STYLE_CURSOR_DEFAULT)) {
-      cursor = NS_STYLE_CURSOR_SPINNING;
+        (cursor == StyleCursorKind::Auto ||
+         cursor == StyleCursorKind::Default)) {
+      cursor = StyleCursorKind::Progress;
       container = nullptr;
     }
   }
 
   if (aTargetFrame) {
-    SetCursor(cursor, container, haveHotspot, hotspotX, hotspotY,
-              aTargetFrame->GetNearestWidget(), false);
+    SetCursor(cursor, container, hotspot, aTargetFrame->GetNearestWidget(),
+              false);
     gLastCursorSourceFrame = aTargetFrame;
     gLastCursorUpdateTime = TimeStamp::NowLoRes();
   }
 
-  if (mLockCursor || NS_STYLE_CURSOR_AUTO != cursor) {
+  if (mLockCursor != kInvalidCursorKind || StyleCursorKind::Auto != cursor) {
     *aStatus = nsEventStatus_eConsumeDoDefault;
   }
 }
@@ -3689,11 +3796,10 @@ void EventStateManager::ClearCachedWidgetCursor(nsIFrame* aTargetFrame) {
   aWidget->ClearCachedCursor();
 }
 
-nsresult EventStateManager::SetCursor(int32_t aCursor,
+nsresult EventStateManager::SetCursor(StyleCursorKind aCursor,
                                       imgIContainer* aContainer,
-                                      bool aHaveHotspot, float aHotspotX,
-                                      float aHotspotY, nsIWidget* aWidget,
-                                      bool aLockCursor) {
+                                      const Maybe<gfx::IntPoint>& aHotspot,
+                                      nsIWidget* aWidget, bool aLockCursor) {
   EnsureDocument(mPresContext);
   NS_ENSURE_TRUE(mDocument, NS_ERROR_FAILURE);
   sMouseOverDocument = mDocument.get();
@@ -3702,163 +3808,126 @@ nsresult EventStateManager::SetCursor(int32_t aCursor,
 
   NS_ENSURE_TRUE(aWidget, NS_ERROR_FAILURE);
   if (aLockCursor) {
-    if (NS_STYLE_CURSOR_AUTO != aCursor) {
+    if (StyleCursorKind::Auto != aCursor) {
       mLockCursor = aCursor;
     } else {
       // If cursor style is set to auto we unlock the cursor again.
-      mLockCursor = 0;
+      mLockCursor = kInvalidCursorKind;
     }
   }
   switch (aCursor) {
     default:
-    case NS_STYLE_CURSOR_AUTO:
-    case NS_STYLE_CURSOR_DEFAULT:
+    case StyleCursorKind::Auto:
+    case StyleCursorKind::Default:
       c = eCursor_standard;
       break;
-    case NS_STYLE_CURSOR_POINTER:
+    case StyleCursorKind::Pointer:
       c = eCursor_hyperlink;
       break;
-    case NS_STYLE_CURSOR_CROSSHAIR:
+    case StyleCursorKind::Crosshair:
       c = eCursor_crosshair;
       break;
-    case NS_STYLE_CURSOR_MOVE:
+    case StyleCursorKind::Move:
       c = eCursor_move;
       break;
-    case NS_STYLE_CURSOR_TEXT:
+    case StyleCursorKind::Text:
       c = eCursor_select;
       break;
-    case NS_STYLE_CURSOR_WAIT:
+    case StyleCursorKind::Wait:
       c = eCursor_wait;
       break;
-    case NS_STYLE_CURSOR_HELP:
+    case StyleCursorKind::Help:
       c = eCursor_help;
       break;
-    case NS_STYLE_CURSOR_N_RESIZE:
+    case StyleCursorKind::NResize:
       c = eCursor_n_resize;
       break;
-    case NS_STYLE_CURSOR_S_RESIZE:
+    case StyleCursorKind::SResize:
       c = eCursor_s_resize;
       break;
-    case NS_STYLE_CURSOR_W_RESIZE:
+    case StyleCursorKind::WResize:
       c = eCursor_w_resize;
       break;
-    case NS_STYLE_CURSOR_E_RESIZE:
+    case StyleCursorKind::EResize:
       c = eCursor_e_resize;
       break;
-    case NS_STYLE_CURSOR_NW_RESIZE:
+    case StyleCursorKind::NwResize:
       c = eCursor_nw_resize;
       break;
-    case NS_STYLE_CURSOR_SE_RESIZE:
+    case StyleCursorKind::SeResize:
       c = eCursor_se_resize;
       break;
-    case NS_STYLE_CURSOR_NE_RESIZE:
+    case StyleCursorKind::NeResize:
       c = eCursor_ne_resize;
       break;
-    case NS_STYLE_CURSOR_SW_RESIZE:
+    case StyleCursorKind::SwResize:
       c = eCursor_sw_resize;
       break;
-    case NS_STYLE_CURSOR_COPY:  // CSS3
+    case StyleCursorKind::Copy:  // CSS3
       c = eCursor_copy;
       break;
-    case NS_STYLE_CURSOR_ALIAS:
+    case StyleCursorKind::Alias:
       c = eCursor_alias;
       break;
-    case NS_STYLE_CURSOR_CONTEXT_MENU:
+    case StyleCursorKind::ContextMenu:
       c = eCursor_context_menu;
       break;
-    case NS_STYLE_CURSOR_CELL:
+    case StyleCursorKind::Cell:
       c = eCursor_cell;
       break;
-    case NS_STYLE_CURSOR_GRAB:
+    case StyleCursorKind::Grab:
       c = eCursor_grab;
       break;
-    case NS_STYLE_CURSOR_GRABBING:
+    case StyleCursorKind::Grabbing:
       c = eCursor_grabbing;
       break;
-    case NS_STYLE_CURSOR_SPINNING:
+    case StyleCursorKind::Progress:
       c = eCursor_spinning;
       break;
-    case NS_STYLE_CURSOR_ZOOM_IN:
+    case StyleCursorKind::ZoomIn:
       c = eCursor_zoom_in;
       break;
-    case NS_STYLE_CURSOR_ZOOM_OUT:
+    case StyleCursorKind::ZoomOut:
       c = eCursor_zoom_out;
       break;
-    case NS_STYLE_CURSOR_NOT_ALLOWED:
+    case StyleCursorKind::NotAllowed:
       c = eCursor_not_allowed;
       break;
-    case NS_STYLE_CURSOR_COL_RESIZE:
+    case StyleCursorKind::ColResize:
       c = eCursor_col_resize;
       break;
-    case NS_STYLE_CURSOR_ROW_RESIZE:
+    case StyleCursorKind::RowResize:
       c = eCursor_row_resize;
       break;
-    case NS_STYLE_CURSOR_NO_DROP:
+    case StyleCursorKind::NoDrop:
       c = eCursor_no_drop;
       break;
-    case NS_STYLE_CURSOR_VERTICAL_TEXT:
+    case StyleCursorKind::VerticalText:
       c = eCursor_vertical_text;
       break;
-    case NS_STYLE_CURSOR_ALL_SCROLL:
+    case StyleCursorKind::AllScroll:
       c = eCursor_all_scroll;
       break;
-    case NS_STYLE_CURSOR_NESW_RESIZE:
+    case StyleCursorKind::NeswResize:
       c = eCursor_nesw_resize;
       break;
-    case NS_STYLE_CURSOR_NWSE_RESIZE:
+    case StyleCursorKind::NwseResize:
       c = eCursor_nwse_resize;
       break;
-    case NS_STYLE_CURSOR_NS_RESIZE:
+    case StyleCursorKind::NsResize:
       c = eCursor_ns_resize;
       break;
-    case NS_STYLE_CURSOR_EW_RESIZE:
+    case StyleCursorKind::EwResize:
       c = eCursor_ew_resize;
       break;
-    case NS_STYLE_CURSOR_NONE:
+    case StyleCursorKind::None:
       c = eCursor_none;
       break;
   }
 
-  // First, try the imgIContainer, if non-null
-  nsresult rv = NS_ERROR_FAILURE;
-  if (aContainer) {
-    uint32_t hotspotX, hotspotY;
-
-    // css3-ui says to use the CSS-specified hotspot if present,
-    // otherwise use the intrinsic hotspot, otherwise use the top left
-    // corner.
-    if (aHaveHotspot) {
-      int32_t imgWidth, imgHeight;
-      aContainer->GetWidth(&imgWidth);
-      aContainer->GetHeight(&imgHeight);
-
-      // XXX std::max(NS_lround(x), 0)?
-      hotspotX = aHotspotX > 0.0f ? uint32_t(aHotspotX + 0.5f) : uint32_t(0);
-      if (hotspotX >= uint32_t(imgWidth)) hotspotX = imgWidth - 1;
-      hotspotY = aHotspotY > 0.0f ? uint32_t(aHotspotY + 0.5f) : uint32_t(0);
-      if (hotspotY >= uint32_t(imgHeight)) hotspotY = imgHeight - 1;
-    } else {
-      hotspotX = 0;
-      hotspotY = 0;
-      nsCOMPtr<nsIProperties> props(do_QueryInterface(aContainer));
-      if (props) {
-        nsCOMPtr<nsISupportsPRUint32> hotspotXWrap, hotspotYWrap;
-
-        props->Get("hotspotX", NS_GET_IID(nsISupportsPRUint32),
-                   getter_AddRefs(hotspotXWrap));
-        props->Get("hotspotY", NS_GET_IID(nsISupportsPRUint32),
-                   getter_AddRefs(hotspotYWrap));
-
-        if (hotspotXWrap) hotspotXWrap->GetData(&hotspotX);
-        if (hotspotYWrap) hotspotYWrap->GetData(&hotspotY);
-      }
-    }
-
-    rv = aWidget->SetCursor(aContainer, hotspotX, hotspotY);
-  }
-
-  if (NS_FAILED(rv)) aWidget->SetCursor(c);
-
+  int32_t x = aHotspot ? aHotspot->x : 0;
+  int32_t y = aHotspot ? aHotspot->y : 0;
+  aWidget->SetCursor(c, aContainer, x, y);
   return NS_OK;
 }
 

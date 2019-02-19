@@ -9,7 +9,7 @@
 #include "mozilla/dom/HTMLMediaElement.h"
 #ifdef XP_WIN
 // HTMLTrackElement.webidl defines ERROR, but so does windows.h:
-#undef ERROR
+#  undef ERROR
 #endif
 #include "WebVTTListener.h"
 #include "mozilla/LoadInfo.h"
@@ -326,7 +326,7 @@ void HTMLTrackElement::LoadResource(RefPtr<WebVTTListener>&& aWebVTTListener) {
         channel->SetNotificationCallbacks(self->mListener);
 
         LOG(LogLevel::Debug, ("opening webvtt channel"));
-        rv = channel->AsyncOpen2(self->mListener);
+        rv = channel->AsyncOpen(self->mListener);
 
         if (NS_FAILED(rv)) {
           self->SetReadyState(TextTrackReadyState::FailedToLoad);

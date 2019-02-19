@@ -47,8 +47,10 @@
 #include "nsPrintfCString.h"
 #include "mozilla/AbstractThread.h"
 #include "ExpandedPrincipal.h"
+#include "mozilla/StaticPtr.h"
+#include "mozilla/ClearOnShutdown.h"
 
-static nsPermissionManager* gPermissionManager = nullptr;
+static mozilla::StaticRefPtr<nsPermissionManager> gPermissionManager;
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -732,6 +734,60 @@ static bool IsPersistentExpire(uint32_t aExpire) {
          aExpire != nsIPermissionManager::EXPIRE_POLICY;
 }
 
+static void UpdateAutoplayTelemetry(const nsCString& aType,
+                                    uint32_t aOldPermission,
+                                    uint32_t aNewPermission,
+                                    uint32_t aExpireType) {
+  if (!aType.EqualsLiteral("autoplay-media")) {
+    return;
+  }
+
+  if (aExpireType != nsIPermissionManager::EXPIRE_NEVER) {
+    return;
+  }
+
+  // Add permission
+  if (aOldPermission == nsIPermissionManager::UNKNOWN_ACTION) {
+    if (aNewPermission == nsIPermissionManager::ALLOW_ACTION) {
+      AccumulateCategorical(
+          mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::AddAllow);
+    } else if (aNewPermission == nsIPermissionManager::DENY_ACTION) {
+      AccumulateCategorical(
+          mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::AddBlock);
+    }
+    return;
+  }
+
+  // Remove permission
+  if (aNewPermission == nsIPermissionManager::UNKNOWN_ACTION) {
+    if (aOldPermission == nsIPermissionManager::ALLOW_ACTION) {
+      AccumulateCategorical(
+          mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::
+              RemoveAllow);
+    } else if (aOldPermission == nsIPermissionManager::DENY_ACTION) {
+      AccumulateCategorical(
+          mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::
+              RemoveBlock);
+    }
+    return;
+  }
+
+  // Change permission
+  if (aNewPermission == nsIPermissionManager::ALLOW_ACTION &&
+      aOldPermission == nsIPermissionManager::DENY_ACTION) {
+    AccumulateCategorical(
+        mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::AddAllow);
+    AccumulateCategorical(
+        mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::RemoveBlock);
+  } else if (aNewPermission == nsIPermissionManager::DENY_ACTION &&
+             aOldPermission == nsIPermissionManager::ALLOW_ACTION) {
+    AccumulateCategorical(
+        mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::AddBlock);
+    AccumulateCategorical(
+        mozilla::Telemetry::LABELS_AUTOPLAY_SITES_SETTING_CHANGE::RemoveAllow);
+  }
+}
+
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -924,10 +980,21 @@ nsPermissionManager::GetXPCOMSingleton() {
   if (NS_SUCCEEDED(permManager->Init())) {
     // Note: This is cleared in the nsPermissionManager destructor.
     gPermissionManager = permManager.get();
+    ClearOnShutdown(&gPermissionManager);
     return permManager.forget();
   }
 
   return nullptr;
+}
+
+// static
+nsPermissionManager* nsPermissionManager::GetInstance() {
+  if (!gPermissionManager) {
+    // Hand off the creation of the permission manager to GetXPCOMSingleton.
+    nsCOMPtr<nsIPermissionManager> permManager = GetXPCOMSingleton();
+  }
+
+  return gPermissionManager;
 }
 
 nsresult nsPermissionManager::Init() {
@@ -1817,6 +1884,8 @@ nsresult nsPermissionManager::AddInternal(
     }
 
     case eOperationAdding: {
+      UpdateAutoplayTelemetry(aType, nsIPermissionManager::UNKNOWN_ACTION,
+                              aPermission, aExpireType);
       if (aDBOperation == eWriteToDB) {
         // we'll be writing to the database - generate a known unique id
         id = ++mLargestID;
@@ -1860,6 +1929,9 @@ nsresult nsPermissionManager::AddInternal(
         break;
       }
 
+      UpdateAutoplayTelemetry(aType, oldPermissionEntry.mPermission,
+                              nsIPermissionManager::UNKNOWN_ACTION,
+                              aExpireType);
       entry->GetPermissions().RemoveElementAt(index);
 
       // Record a count of the number of preload permissions present in the
@@ -1898,6 +1970,9 @@ nsresult nsPermissionManager::AddInternal(
         NS_WARNING("Attempting to modify EXPIRE_POLICY permission");
         break;
       }
+
+      UpdateAutoplayTelemetry(aType, entry->GetPermissions()[index].mPermission,
+                              aPermission, aExpireType);
 
       // If the new expireType is EXPIRE_SESSION, then we have to keep a
       // copy of the previous permission/expireType values. This cached value
@@ -2912,7 +2987,7 @@ nsresult nsPermissionManager::ImportDefaults() {
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIInputStream> inputStream;
-  rv = channel->Open2(getter_AddRefs(inputStream));
+  rv = channel->Open(getter_AddRefs(inputStream));
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = _DoImport(inputStream, nullptr);

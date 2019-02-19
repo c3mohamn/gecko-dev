@@ -70,7 +70,13 @@ class TestRunner(object):
 
     def setup(self):
         self.logger.debug("Executor setup")
-        self.executor.setup(self)
+        try:
+            self.executor.setup(self)
+        except Exception:
+            # The caller is responsible for logging the exception if required
+            self.send_message("init_failed")
+        else:
+            self.send_message("init_succeeded")
         self.logger.debug("Executor setup done")
 
     def teardown(self):
@@ -576,8 +582,8 @@ class TestRunnerManager(threading.Thread):
         expected = test.expected()
         status = status_subns.get(file_result.status, file_result.status)
 
-        if self.browser.check_crash(test.id):
-            status = "CRASH"
+        if self.browser.check_crash(test.id) and status != "CRASH":
+            self.logger.info("Found a crash dump; should change status from %s to CRASH but this causes instability" % (status,))
 
         self.test_count += 1
         is_unexpected = expected != status

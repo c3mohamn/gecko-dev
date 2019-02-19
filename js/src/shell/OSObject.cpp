@@ -11,12 +11,12 @@
 #include <errno.h>
 #include <stdlib.h>
 #ifdef XP_WIN
-#include <direct.h>
-#include <process.h>
-#include <string.h>
+#  include <direct.h>
+#  include <process.h>
+#  include <string.h>
 #else
-#include <sys/wait.h>
-#include <unistd.h>
+#  include <sys/wait.h>
+#  include <unistd.h>
 #endif
 
 #include "jsapi.h"
@@ -39,12 +39,12 @@
 #include "vm/JSObject-inl.h"
 
 #ifdef XP_WIN
-#ifndef PATH_MAX
-#define PATH_MAX (MAX_PATH > _MAX_DIR ? MAX_PATH : _MAX_DIR)
-#endif
-#define getcwd _getcwd
+#  ifndef PATH_MAX
+#    define PATH_MAX (MAX_PATH > _MAX_DIR ? MAX_PATH : _MAX_DIR)
+#  endif
+#  define getcwd _getcwd
 #else
-#include <libgen.h>
+#  include <libgen.h>
 #endif
 
 using js::shell::RCFile;
@@ -537,21 +537,22 @@ static bool Redirect(JSContext* cx, const CallArgs& args, RCFile** outFile) {
   }
 
   if (args[0].isObject()) {
-    RootedObject fileObj(cx, js::CheckedUnwrap(&args[0].toObject()));
+    Rooted<FileObject*> fileObj(cx,
+                                args[0].toObject().maybeUnwrapIf<FileObject>());
     if (!fileObj) {
+      JS_ReportErrorNumberASCII(cx, js::shell::my_GetErrorMessage, nullptr,
+                                JSSMSG_INVALID_ARGS, "redirect");
       return false;
     }
 
-    if (fileObj->is<FileObject>()) {
-      // Passed in a FileObject. Create a FileObject for the previous
-      // global file, and set the global file to the passed-in one.
-      *outFile = fileObj->as<FileObject>().rcFile();
-      (*outFile)->acquire();
-      oldFile->release();
+    // Passed in a FileObject. Create a FileObject for the previous
+    // global file, and set the global file to the passed-in one.
+    *outFile = fileObj->rcFile();
+    (*outFile)->acquire();
+    oldFile->release();
 
-      args.rval().setObject(*oldFileObj);
-      return true;
-    }
+    args.rval().setObject(*oldFileObj);
+    return true;
   }
 
   RootedString filename(cx);
@@ -587,10 +588,7 @@ static bool osfile_close(JSContext* cx, unsigned argc, Value* vp) {
 
   Rooted<FileObject*> fileObj(cx);
   if (args.get(0).isObject()) {
-    JSObject* obj = js::CheckedUnwrap(&args[0].toObject());
-    if (obj->is<FileObject>()) {
-      fileObj = &obj->as<FileObject>();
-    }
+    fileObj = args[0].toObject().maybeUnwrapIf<FileObject>();
   }
 
   if (!fileObj) {

@@ -1,8 +1,8 @@
 // This file ensures that suspending a channel directly after opening it
 // suspends future notifications correctly.
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "URL", function() {
   return "http://localhost:" + httpserv.identity.primaryPort;
@@ -68,7 +68,7 @@ function run_test() {
 
   var chan = makeChan(URL + "/woo");
   chan.QueryInterface(Ci.nsIRequest);
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 
   do_test_pending();
 }

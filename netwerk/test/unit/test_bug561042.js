@@ -4,8 +4,8 @@
 
 "use strict";
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const SERVER_PORT = 8080;
 const baseURL = "http://localhost:" + SERVER_PORT + "/";
@@ -39,6 +39,6 @@ function run_test() {
     });
     var chan = NetUtil.newChannel({uri: baseURL, loadUsingSystemPrincipal: true})
                       .QueryInterface(Ci.nsIHttpChannel);
-    chan.asyncOpen2(listener);
+    chan.asyncOpen(listener);
     do_test_pending();
 }

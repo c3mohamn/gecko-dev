@@ -21,9 +21,9 @@
 #include <ctime>
 
 #if defined(XP_UNIX) && !defined(XP_DARWIN)
-#include <time.h>
+#  include <time.h>
 #else
-#include <chrono>
+#  include <chrono>
 #endif
 
 #include "jsapi.h"
@@ -32,10 +32,10 @@
 #include "builtin/Promise.h"
 #include "builtin/SelfHostingDefines.h"
 #ifdef DEBUG
-#include "frontend/TokenStream.h"
-#include "irregexp/RegExpAST.h"
-#include "irregexp/RegExpEngine.h"
-#include "irregexp/RegExpParser.h"
+#  include "frontend/TokenStream.h"
+#  include "irregexp/RegExpAST.h"
+#  include "irregexp/RegExpEngine.h"
+#  include "irregexp/RegExpParser.h"
 #endif
 #include "gc/Heap.h"
 #include "jit/BaselineJIT.h"
@@ -57,6 +57,7 @@
 #include "js/UniquePtr.h"
 #include "js/Vector.h"
 #include "js/Wrapper.h"
+#include "threading/CpuCount.h"
 #include "util/StringBuffer.h"
 #include "util/Text.h"
 #include "vm/AsyncFunction.h"
@@ -73,6 +74,7 @@
 #include "vm/StringType.h"
 #include "vm/TraceLogging.h"
 #include "wasm/AsmJS.h"
+#include "wasm/WasmBaselineCompile.h"
 #include "wasm/WasmJS.h"
 #include "wasm/WasmModule.h"
 #include "wasm/WasmSignalHandlers.h"
@@ -329,12 +331,12 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-#ifdef ENABLE_BINARYDATA
+#ifdef ENABLE_TYPED_OBJECTS
   value = BooleanValue(true);
 #else
   value = BooleanValue(false);
 #endif
-  if (!JS_SetProperty(cx, info, "binary-data", value)) {
+  if (!JS_SetProperty(cx, info, "typed-objects", value)) {
     return false;
   }
 
@@ -362,6 +364,15 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
   value = BooleanValue(false);
 #endif
   if (!JS_SetProperty(cx, info, "moz-memory", value)) {
+    return false;
+  }
+
+#if defined(JS_BUILD_BINAST)
+  value = BooleanValue(true);
+#else
+  value = BooleanValue(false);
+#endif
+  if (!JS_SetProperty(cx, info, "binast", value)) {
     return false;
   }
 
@@ -418,7 +429,7 @@ static bool GC(JSContext* cx, unsigned argc, Value* vp) {
   }
 
 #ifndef JS_MORE_DETERMINISTIC
-  size_t preBytes = cx->runtime()->gc.usage.gcBytes();
+  size_t preBytes = cx->runtime()->gc.heapSize.gcBytes();
 #endif
 
   if (zone) {
@@ -428,12 +439,12 @@ static bool GC(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   JSGCInvocationKind gckind = shrinking ? GC_SHRINK : GC_NORMAL;
-  JS::NonIncrementalGC(cx, gckind, JS::gcreason::API);
+  JS::NonIncrementalGC(cx, gckind, JS::GCReason::API);
 
   char buf[256] = {'\0'};
 #ifndef JS_MORE_DETERMINISTIC
   SprintfLiteral(buf, "before %zu, after %zu\n", preBytes,
-                 cx->runtime()->gc.usage.gcBytes());
+                 cx->runtime()->gc.heapSize.gcBytes());
 #endif
   return ReturnStringCopy(cx, args, buf);
 }
@@ -442,10 +453,10 @@ static bool MinorGC(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   if (args.get(0) == BooleanValue(true)) {
     cx->runtime()->gc.storeBuffer().setAboutToOverflow(
-        JS::gcreason::FULL_GENERIC_BUFFER);
+        JS::GCReason::FULL_GENERIC_BUFFER);
   }
 
-  cx->minorGC(JS::gcreason::API);
+  cx->minorGC(JS::GCReason::API);
   args.rval().setUndefined();
   return true;
 }
@@ -591,7 +602,7 @@ static bool RelazifyFunctions(JSContext* cx, unsigned argc, Value* vp) {
   SetAllowRelazification(cx, true);
 
   JS::PrepareForFullGC(cx);
-  JS::NonIncrementalGC(cx, GC_SHRINK, JS::gcreason::API);
+  JS::NonIncrementalGC(cx, GC_SHRINK, JS::GCReason::API);
 
   SetAllowRelazification(cx, false);
   args.rval().setUndefined();
@@ -646,7 +657,7 @@ static bool WasmThreadsSupported(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   bool isSupported = wasm::HasSupport(cx);
 #ifdef ENABLE_WASM_CRANELIFT
-  if (cx->options().wasmForceCranelift()) {
+  if (cx->options().wasmCranelift()) {
     isSupported = false;
   }
 #endif
@@ -658,11 +669,11 @@ static bool WasmBulkMemSupported(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 #ifdef ENABLE_WASM_BULKMEM_OPS
   bool isSupported = true;
-#ifdef ENABLE_WASM_CRANELIFT
-  if (cx->options().wasmForceCranelift()) {
+#  ifdef ENABLE_WASM_CRANELIFT
+  if (cx->options().wasmCranelift()) {
     isSupported = false;
   }
-#endif
+#  endif
 #else
   bool isSupported = false;
 #endif
@@ -686,6 +697,13 @@ static bool WasmGcEnabled(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+static bool WasmDebugSupport(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  args.rval().setBoolean(cx->options().wasmBaseline() &&
+                         wasm::BaselineCanCompile());
+  return true;
+}
+
 static bool WasmGeneralizedTables(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 #ifdef ENABLE_WASM_GENERALIZED_TABLES
@@ -702,14 +720,26 @@ static bool WasmGeneralizedTables(JSContext* cx, unsigned argc, Value* vp) {
 static bool WasmCompileMode(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
+  bool baseline = cx->options().wasmBaseline();
+  bool ion = cx->options().wasmIon();
+#ifdef ENABLE_WASM_CRANELIFT
+  bool cranelift = cx->options().wasmCranelift();
+#else
+  bool cranelift = false;
+#endif
+
   // We default to ion if nothing is enabled, as does the Wasm compiler.
   JSString* result;
   if (!wasm::HasSupport(cx)) {
-    result = JS_NewStringCopyZ(cx, "disabled");
-  } else if (cx->options().wasmBaseline() && cx->options().wasmIon()) {
-    result = JS_NewStringCopyZ(cx, "baseline-or-ion");
-  } else if (cx->options().wasmBaseline()) {
+    result = JS_NewStringCopyZ(cx, "none");
+  } else if (baseline && ion) {
+    result = JS_NewStringCopyZ(cx, "baseline+ion");
+  } else if (baseline && cranelift) {
+    result = JS_NewStringCopyZ(cx, "baseline+cranelift");
+  } else if (baseline) {
     result = JS_NewStringCopyZ(cx, "baseline");
+  } else if (cranelift) {
+    result = JS_NewStringCopyZ(cx, "cranelift");
   } else {
     result = JS_NewStringCopyZ(cx, "ion");
   }
@@ -818,13 +848,12 @@ static bool WasmExtractCode(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  JSObject* unwrapped = CheckedUnwrap(&args.get(0).toObject());
-  if (!unwrapped || !unwrapped->is<WasmModuleObject>()) {
+  Rooted<WasmModuleObject*> module(
+      cx, args[0].toObject().maybeUnwrapIf<WasmModuleObject>());
+  if (!module) {
     JS_ReportErrorASCII(cx, "argument is not a WebAssembly.Module");
     return false;
   }
-
-  Rooted<WasmModuleObject*> module(cx, &unwrapped->as<WasmModuleObject>());
 
   bool stableTier = false;
   bool bestTier = false;
@@ -879,13 +908,13 @@ static bool WasmHasTier2CompilationCompleted(JSContext* cx, unsigned argc,
     return false;
   }
 
-  JSObject* unwrapped = CheckedUnwrap(&args.get(0).toObject());
-  if (!unwrapped || !unwrapped->is<WasmModuleObject>()) {
+  Rooted<WasmModuleObject*> module(
+      cx, args[0].toObject().maybeUnwrapIf<WasmModuleObject>());
+  if (!module) {
     JS_ReportErrorASCII(cx, "argument is not a WebAssembly.Module");
     return false;
   }
 
-  Rooted<WasmModuleObject*> module(cx, &unwrapped->as<WasmModuleObject>());
   args.rval().set(BooleanValue(!module->module().testingTier2Active()));
   return true;
 }
@@ -1419,7 +1448,7 @@ static bool CaptureFirstSubsumedFrame(JSContext* cx, unsigned argc,
   }
 
   RootedObject obj(cx, &args[0].toObject());
-  obj = CheckedUnwrap(obj);
+  obj = CheckedUnwrapStatic(obj);
   if (!obj) {
     JS_ReportErrorASCII(cx, "Denied permission to object.");
     return false;
@@ -1820,9 +1849,9 @@ bool RunIterativeFailureTest(JSContext* cx,
 
   MOZ_ASSERT(!cx->isExceptionPending());
 
-#ifdef JS_GC_ZEAL
+#  ifdef JS_GC_ZEAL
   JS_SetGCZeal(cx, 0, JS_DEFAULT_ZEAL_FREQ);
-#endif
+#  endif
 
   size_t compartmentCount = CountCompartments(cx);
 
@@ -1891,7 +1920,7 @@ bool RunIterativeFailureTest(JSContext* cx,
         compartmentCount = CountCompartments(cx);
       }
 
-#ifdef JS_TRACE_LOGGING
+#  ifdef JS_TRACE_LOGGING
       // Reset the TraceLogger state if enabled.
       TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
       if (logger && logger->enabled()) {
@@ -1900,7 +1929,7 @@ bool RunIterativeFailureTest(JSContext* cx,
         }
         logger->enable(cx);
       }
-#endif
+#  endif
 
       iteration++;
     } while (failureWasSimulated);
@@ -2271,8 +2300,7 @@ static const JSClassOps FinalizeCounterClassOps = {nullptr, /* addProperty */
                                                    finalize_counter_finalize};
 
 static const JSClass FinalizeCounterClass = {
-    "FinalizeCounter", JSCLASS_IS_ANONYMOUS | JSCLASS_FOREGROUND_FINALIZE,
-    &FinalizeCounterClassOps};
+    "FinalizeCounter", JSCLASS_FOREGROUND_FINALIZE, &FinalizeCounterClassOps};
 
 static bool MakeFinalizeObserver(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -2642,12 +2670,23 @@ static bool testingFunc_inJit(JSContext* cx, unsigned argc, Value* vp) {
     return ReturnStringCopy(cx, args, "Baseline is disabled.");
   }
 
-  JSScript* script = cx->currentScript();
-  if (script && script->getWarmUpResetCount() >= 20) {
-    return ReturnStringCopy(
-        cx, args, "Compilation is being repeatedly prevented. Giving up.");
+  // Use frame iterator to inspect caller.
+  FrameIter iter(cx);
+  MOZ_ASSERT(!iter.done());
+
+  if (iter.hasScript()) {
+    // Detect repeated attempts to compile, resetting the counter if inJit
+    // succeeds. Note: This script may have be inlined into its caller.
+    if (iter.isJSJit()) {
+      iter.script()->resetWarmUpResetCounter();
+    } else if (iter.script()->getWarmUpResetCount() >= 20) {
+      return ReturnStringCopy(
+          cx, args, "Compilation is being repeatedly prevented. Giving up.");
+    }
   }
 
+  // Returns true for any JIT (including WASM).
+  MOZ_ASSERT_IF(iter.isJSJit(), cx->currentlyRunningInJit());
   args.rval().setBoolean(cx->currentlyRunningInJit());
   return true;
 }
@@ -2659,29 +2698,22 @@ static bool testingFunc_inIon(JSContext* cx, unsigned argc, Value* vp) {
     return ReturnStringCopy(cx, args, "Ion is disabled.");
   }
 
-  if (cx->activation()->hasWasmExitFP()) {
-    // Exited through wasm. Note this is false when the fast wasm->jit exit
-    // was taken, in which case we actually have jit frames on the stack.
-    args.rval().setBoolean(false);
-    return true;
-  }
+  // Use frame iterator to inspect caller.
+  FrameIter iter(cx);
+  MOZ_ASSERT(!iter.done());
 
-  ScriptFrameIter iter(cx);
-  if (!iter.done() && iter.isIon()) {
-    // Reset the counter of the IonScript's script.
-    jit::JSJitFrameIter jitIter(cx->activation()->asJit());
-    ++jitIter;
-    jitIter.script()->resetWarmUpResetCounter();
-  } else {
-    // Check if we missed multiple attempts at compiling the innermost script.
-    JSScript* script = cx->currentScript();
-    if (script && script->getWarmUpResetCount() >= 20) {
+  if (iter.hasScript()) {
+    // Detect repeated attempts to compile, resetting the counter if inIon
+    // succeeds. Note: This script may have be inlined into its caller.
+    if (iter.isIon()) {
+      iter.script()->resetWarmUpResetCounter();
+    } else if (iter.script()->getWarmUpResetCount() >= 20) {
       return ReturnStringCopy(
           cx, args, "Compilation is being repeatedly prevented. Giving up.");
     }
   }
 
-  args.rval().setBoolean(!iter.done() && iter.isIon());
+  args.rval().setBoolean(iter.isIon());
   return true;
 }
 
@@ -3286,16 +3318,16 @@ static bool ObjectAddress(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-#ifdef JS_MORE_DETERMINISTIC
+#  ifdef JS_MORE_DETERMINISTIC
   args.rval().setInt32(0);
   return true;
-#else
+#  else
   void* ptr = js::UncheckedUnwrap(&args[0].toObject(), true);
   char buffer[64];
   SprintfLiteral(buffer, "%p", ptr);
 
   return ReturnStringCopy(cx, args, buffer);
-#endif
+#  endif
 }
 
 static bool SharedAddress(JSContext* cx, unsigned argc, Value* vp) {
@@ -3311,10 +3343,10 @@ static bool SharedAddress(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-#ifdef JS_MORE_DETERMINISTIC
+#  ifdef JS_MORE_DETERMINISTIC
   args.rval().setString(cx->staticStrings().getUint(0));
-#else
-  RootedObject obj(cx, CheckedUnwrap(&args[0].toObject()));
+#  else
+  RootedObject obj(cx, CheckedUnwrapStatic(&args[0].toObject()));
   if (!obj) {
     ReportAccessDenied(cx);
     return false;
@@ -3335,7 +3367,7 @@ static bool SharedAddress(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   args.rval().setString(str);
-#endif
+#  endif
 
   return true;
 }
@@ -3875,7 +3907,7 @@ static bool EvalReturningScope(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   if (global) {
-    global = CheckedUnwrap(global);
+    global = CheckedUnwrapDynamic(global, cx);
     if (!global) {
       JS_ReportErrorASCII(cx, "Permission denied to access global");
       return false;
@@ -3978,7 +4010,7 @@ static bool ShellCloneAndExecuteScript(JSContext* cx, unsigned argc,
     return false;
   }
 
-  global = CheckedUnwrap(global);
+  global = CheckedUnwrapDynamic(global, cx);
   if (!global) {
     JS_ReportErrorASCII(cx, "Permission denied to access global");
     return false;
@@ -4186,7 +4218,7 @@ static void majorGC(JSContext* cx, JSGCStatus status, void* data) {
   if (info->depth > 0) {
     info->depth--;
     JS::PrepareForFullGC(cx);
-    JS::NonIncrementalGC(cx, GC_NORMAL, JS::gcreason::API);
+    JS::NonIncrementalGC(cx, GC_NORMAL, JS::GCReason::API);
     info->depth++;
   }
 }
@@ -4205,7 +4237,7 @@ static void minorGC(JSContext* cx, JSGCStatus status, void* data) {
   if (info->active) {
     info->active = false;
     if (cx->zone() && !cx->zone()->isAtomsZone()) {
-      cx->runtime()->gc.evictNursery(JS::gcreason::DEBUG_GC);
+      cx->runtime()->gc.evictNursery(JS::GCReason::DEBUG_GC);
     }
     info->active = true;
   }
@@ -4351,7 +4383,7 @@ static bool GetLcovInfo(JSContext* cx, unsigned argc, Value* vp) {
       JS_ReportErrorASCII(cx, "Permission denied to access global");
       return false;
     }
-    global = CheckedUnwrap(global);
+    global = CheckedUnwrapDynamic(global, cx);
     if (!global) {
       ReportAccessDenied(cx);
       return false;
@@ -4940,21 +4972,21 @@ static bool GetTimeZone(JSContext* cx, unsigned argc, Value* vp) {
     }
 #else
     tzset();
-#if defined(HAVE_LOCALTIME_R)
+#  if defined(HAVE_LOCALTIME_R)
     if (localtime_r(now, &local)) {
-#else
+#  else
     std::tm* localtm = std::localtime(now);
     if (localtm) {
       *local = *localtm;
-#endif /* HAVE_LOCALTIME_R */
+#  endif /* HAVE_LOCALTIME_R */
 
-#if defined(HAVE_TM_ZONE_TM_GMTOFF)
+#  if defined(HAVE_TM_ZONE_TM_GMTOFF)
       return local.tm_zone;
-#else
+#  else
       return tzname[local.tm_isdst > 0];
-#endif /* HAVE_TM_ZONE_TM_GMTOFF */
+#  endif /* HAVE_TM_ZONE_TM_GMTOFF */
     }
-#endif /* _WIN32 */
+#endif   /* _WIN32 */
     return nullptr;
   };
 
@@ -5037,6 +5069,19 @@ static bool SetTimeZone(JSContext* cx, unsigned argc, Value* vp) {
   JS::ResetTimeZone();
 
   args.rval().setUndefined();
+  return true;
+}
+
+static bool GetCoreCount(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject callee(cx, &args.callee());
+
+  if (args.length() != 0) {
+    ReportUsageErrorASCII(cx, callee, "Wrong number of arguments");
+    return false;
+  }
+
+  args.rval().setInt32(GetCPUCount());
   return true;
 }
 
@@ -5285,6 +5330,26 @@ static bool ObjectGlobal(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   obj = ToWindowProxyIfWindow(&obj->nonCCWGlobal());
+
+  args.rval().setObject(*obj);
+  return true;
+}
+
+static bool FirstGlobalInCompartment(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject callee(cx, &args.callee());
+
+  if (!args.get(0).isObject()) {
+    ReportUsageErrorASCII(cx, callee, "Argument must be an object");
+    return false;
+  }
+
+  RootedObject obj(cx, UncheckedUnwrap(&args[0].toObject()));
+  obj = ToWindowProxyIfWindow(GetFirstGlobalInCompartment(obj->compartment()));
+
+  if (!cx->compartment()->wrap(cx, &obj)) {
+    return false;
+  }
 
   args.rval().setObject(*obj);
   return true;
@@ -5904,12 +5969,6 @@ gc::ZealModeHelpText),
 "  Returns whether the given value is a function containing \"use asm\" that has been\n"
 "  validated according to the asm.js spec."),
 
-    JS_FN_HELP("isAsmJSModuleLoadedFromCache", IsAsmJSModuleLoadedFromCache, 1, 0,
-"isAsmJSModuleLoadedFromCache(fn)",
-"  Return whether the given asm.js module function has been loaded directly\n"
-"  from the cache. This function throws an error if fn is not a validated asm.js\n"
-"  module."),
-
     JS_FN_HELP("isAsmJSFunction", IsAsmJSFunction, 1, 0,
 "isAsmJSFunction(fn)",
 "  Returns whether the given value is a nested function in an asm.js module that has been\n"
@@ -5974,6 +6033,10 @@ gc::ZealModeHelpText),
     JS_FN_HELP("wasmGcEnabled", WasmGcEnabled, 1, 0,
 "wasmGcEnabled(bool)",
 "  Returns a boolean indicating whether the WebAssembly GC types proposal is enabled."),
+
+    JS_FN_HELP("wasmDebugSupport", WasmDebugSupport, 1, 0,
+"wasmDebugSupport(bool)",
+"  Returns a boolean indicating whether the WebAssembly compilers support debugging."),
 
     JS_FN_HELP("wasmGeneralizedTables", WasmGeneralizedTables, 1, 0,
 "wasmGeneralizedTables(bool)",
@@ -6262,6 +6325,11 @@ gc::ZealModeHelpText),
 "getDefaultLocale()",
 "  Get the current default locale.\n"),
 
+    JS_FN_HELP("getCoreCount", GetCoreCount, 0, 0,
+"getCoreCount()",
+"  Get the number of CPU cores from the platform layer.  Typically this\n"
+"  means the number of hyperthreads on systems where that makes sense.\n"),
+
     JS_FN_HELP("setTimeResolution", SetTimeResolution, 2, 0,
 "setTimeResolution(resolution, jitter)",
 "  Enables time clamping and jittering. Specify a time resolution in\n"
@@ -6274,6 +6342,10 @@ gc::ZealModeHelpText),
     JS_FN_HELP("objectGlobal", ObjectGlobal, 1, 0,
 "objectGlobal(obj)",
 "  Returns the object's global object or null if the object is a wrapper.\n"),
+
+    JS_FN_HELP("firstGlobalInCompartment", FirstGlobalInCompartment, 1, 0,
+"firstGlobalInCompartment(obj)",
+"  Returns the first global in obj's compartment.\n"),
 
     JS_FN_HELP("assertCorrectRealm", AssertCorrectRealm, 0, 0,
 "assertCorrectRealm()",

@@ -195,6 +195,12 @@ class ScrollFrameHelper : public nsIReflowCallback {
    */
   void UpdateScrollbarPosition();
 
+  nsSize GetLayoutSize() const {
+    if (mIsUsingMinimumScaleSize) {
+      return mICBSize;
+    }
+    return mScrollPort.Size();
+  }
   nsRect GetScrollPortRect() const { return mScrollPort; }
   nsPoint GetScrollPosition() const {
     return mScrollPort.TopLeft() - mScrolledFrame->GetPosition();
@@ -220,6 +226,28 @@ class ScrollFrameHelper : public nsIReflowCallback {
   nsRect GetScrollRange(nscoord aWidth, nscoord aHeight) const;
   nsSize GetVisualViewportSize() const;
   nsPoint GetVisualViewportOffset() const;
+
+  /**
+   * Return the 'optimal viewing region' [1] as a rect suitable for use by
+   * scroll anchoring. This rect is in the same coordinate space as
+   * 'GetScrollPortRect'.
+   *
+   * [1] https://drafts.csswg.org/css-scroll-snap-1/#optimal-viewing-region
+   */
+  nsRect GetVisualOptimalViewingRect() const;
+
+  /**
+   * For LTR frames, this is the same as GetVisualViewportOffset().
+   * For RTL frames, we take the offset from the top right corner of the frame
+   * to the top right corner of the visual viewport.
+   */
+  nsPoint GetLogicalVisualViewportOffset() const {
+    nsPoint pt = GetVisualViewportOffset();
+    if (!IsPhysicalLTR()) {
+      pt.x += GetVisualViewportSize().width - mScrolledFrame->GetRect().width;
+    }
+    return pt;
+  }
   void ScrollSnap(
       nsIScrollableFrame::ScrollMode aMode = nsIScrollableFrame::SMOOTH_MSD);
   void ScrollSnap(
@@ -410,6 +438,7 @@ class ScrollFrameHelper : public nsIReflowCallback {
   bool ShouldClampScrollPosition() const;
 
   bool IsAlwaysActive() const;
+  void MarkEverScrolled();
   void MarkRecentlyScrolled();
   void MarkNotRecentlyScrolled();
   nsExpirationState* GetExpirationState() { return &mActivityExpirationState; }
@@ -505,6 +534,11 @@ class ScrollFrameHelper : public nsIReflowCallback {
 
   bool IsRootScrollFrameOfDocument() const { return mIsRoot; }
 
+  // Update minimum-scale size.  The minimum-scale size will be set/used only
+  // if there is overflow-x:hidden region.
+  void UpdateMinimumScaleSize(const nsRect& aScrollableOverflow,
+                              const nsSize& aICBSize);
+
   // owning references to the nsIAnonymousContentCreator-built content
   nsCOMPtr<mozilla::dom::Element> mHScrollbarContent;
   nsCOMPtr<mozilla::dom::Element> mVScrollbarContent;
@@ -530,7 +564,15 @@ class ScrollFrameHelper : public nsIReflowCallback {
   nsAtom* mLastSmoothScrollOrigin;
   Maybe<nsPoint> mApzSmoothScrollDestination;
   uint32_t mScrollGeneration;
+  // NOTE: On mobile this value might be factoring into overflow:hidden region
+  // in the case of the top level document.
   nsRect mScrollPort;
+  nsSize mMinimumScaleSize;
+
+  // Stores the ICB size for the root document if this frame is using the
+  // minimum scale size for |mScrollPort|.
+  nsSize mICBSize;
+
   // Where we're currently scrolling to, if we're scrolling asynchronously.
   // If we're not in the middle of an asynchronous scroll then this is
   // just the current scroll position. ScrollBy will choose its
@@ -541,10 +583,15 @@ class ScrollFrameHelper : public nsIReflowCallback {
   // matches the current logical scroll position, we try to scroll to
   // mRestorePos after every reflow --- because after each time content is
   // loaded/added to the scrollable element, there will be a reflow.
+  // Note that for frames where layout and visual viewport aren't one and the
+  // same thing, this scroll position will be the logical scroll position of
+  // the *visual* viewport, as its position will be more relevant to the user.
   nsPoint mRestorePos;
   // The last logical position we scrolled to while trying to restore
   // mRestorePos, or 0,0 when this is a new frame. Set to -1,-1 once we've
   // scrolled for any reason other than trying to restore mRestorePos.
+  // Just as with mRestorePos, this position will be the logical position of
+  // the *visual* viewport where available.
   nsPoint mLastPos;
 
   // The latest scroll position we've sent or received from APZ. This
@@ -651,6 +698,9 @@ class ScrollFrameHelper : public nsIReflowCallback {
 
   // True if we don't want the scrollbar to repaint itself right now.
   bool mSuppressScrollbarRepaints : 1;
+
+  // True if we are using the minimum scale size instead of ICB for scroll port.
+  bool mIsUsingMinimumScaleSize : 1;
 
   mozilla::layout::ScrollVelocityQueue mVelocityQueue;
 
@@ -772,8 +822,13 @@ class nsHTMLScrollFrame : public nsContainerFrame,
     return mHelper.ComputeCustomOverflow(aOverflowAreas);
   }
 
+  nscoord GetLogicalBaseline(mozilla::WritingMode aWritingMode) const override;
+
   bool GetVerticalAlignBaseline(mozilla::WritingMode aWM,
                                 nscoord* aBaseline) const override {
+    NS_ASSERTION(!aWM.IsOrthogonalTo(GetWritingMode()),
+                 "You should only call this on frames with a WM that's "
+                 "parallel to aWM");
     *aBaseline = GetLogicalBaseline(aWM);
     return true;
   }
@@ -842,6 +897,9 @@ class nsHTMLScrollFrame : public nsContainerFrame,
       mozilla::WritingMode aWM) override {
     nsBoxLayoutState bls(aPresContext, aRC, 0);
     return mHelper.GetNondisappearingScrollbarWidth(&bls, aWM);
+  }
+  virtual nsSize GetLayoutSize() const override {
+    return mHelper.GetLayoutSize();
   }
   virtual nsRect GetScrolledRect() const override {
     return mHelper.GetScrolledRect();
@@ -966,6 +1024,7 @@ class nsHTMLScrollFrame : public nsContainerFrame,
   virtual void ClearDidHistoryRestore() override {
     mHelper.mDidHistoryRestore = false;
   }
+  virtual void MarkEverScrolled() override { mHelper.MarkEverScrolled(); }
   virtual bool IsRectNearlyVisible(const nsRect& aRect) override {
     return mHelper.IsRectNearlyVisible(aRect);
   }
@@ -1119,13 +1178,11 @@ class nsHTMLScrollFrame : public nsContainerFrame,
     return mHelper.IsRootScrollFrameOfDocument();
   }
 
-  virtual const ScrollAnchorContainer* GetAnchor() const override {
+  virtual const ScrollAnchorContainer* Anchor() const override {
     return &mHelper.mAnchor;
   }
 
-  virtual ScrollAnchorContainer* GetAnchor() override {
-    return &mHelper.mAnchor;
-  }
+  virtual ScrollAnchorContainer* Anchor() override { return &mHelper.mAnchor; }
 
   // Return the scrolled frame.
   void AppendDirectlyOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult) override {
@@ -1141,10 +1198,12 @@ class nsHTMLScrollFrame : public nsContainerFrame,
 #endif
 
  protected:
-  nsHTMLScrollFrame(ComputedStyle* aStyle, bool aIsRoot)
-      : nsHTMLScrollFrame(aStyle, kClassID, aIsRoot) {}
+  nsHTMLScrollFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
+                    bool aIsRoot)
+      : nsHTMLScrollFrame(aStyle, aPresContext, kClassID, aIsRoot) {}
 
-  nsHTMLScrollFrame(ComputedStyle* aStyle, nsIFrame::ClassID aID, bool aIsRoot);
+  nsHTMLScrollFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
+                    nsIFrame::ClassID aID, bool aIsRoot);
   void SetSuppressScrollbarUpdate(bool aSuppress) {
     mHelper.mSuppressScrollbarUpdate = aSuppress;
   }
@@ -1314,6 +1373,9 @@ class nsXULScrollFrame final : public nsBoxFrame,
     nsBoxLayoutState bls(aPresContext, aRC, 0);
     return mHelper.GetNondisappearingScrollbarWidth(&bls, aWM);
   }
+  virtual nsSize GetLayoutSize() const override {
+    return mHelper.GetLayoutSize();
+  }
   virtual nsRect GetScrolledRect() const override {
     return mHelper.GetScrolledRect();
   }
@@ -1433,6 +1495,7 @@ class nsXULScrollFrame final : public nsBoxFrame,
   virtual void ClearDidHistoryRestore() override {
     mHelper.mDidHistoryRestore = false;
   }
+  virtual void MarkEverScrolled() override { mHelper.MarkEverScrolled(); }
   virtual bool IsRectNearlyVisible(const nsRect& aRect) override {
     return mHelper.IsRectNearlyVisible(aRect);
   }
@@ -1593,13 +1656,11 @@ class nsXULScrollFrame final : public nsBoxFrame,
     return mHelper.IsRootScrollFrameOfDocument();
   }
 
-  virtual const ScrollAnchorContainer* GetAnchor() const override {
+  virtual const ScrollAnchorContainer* Anchor() const override {
     return &mHelper.mAnchor;
   }
 
-  virtual ScrollAnchorContainer* GetAnchor() override {
-    return &mHelper.mAnchor;
-  }
+  virtual ScrollAnchorContainer* Anchor() override { return &mHelper.mAnchor; }
 
   // Return the scrolled frame.
   void AppendDirectlyOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult) override {
@@ -1611,7 +1672,7 @@ class nsXULScrollFrame final : public nsBoxFrame,
 #endif
 
  protected:
-  nsXULScrollFrame(ComputedStyle* aStyle, bool aIsRoot,
+  nsXULScrollFrame(ComputedStyle*, nsPresContext*, bool aIsRoot,
                    bool aClipAllDescendants);
 
   void ClampAndSetBounds(nsBoxLayoutState& aState, nsRect& aRect,

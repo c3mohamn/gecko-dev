@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const sentCookieVal     = "foo=bar";
 const responseBody      = "response body";
@@ -79,7 +79,7 @@ function run_test()
     setCookieString(postRedirectURI, null, sentCookieVal, chan);
 
   // Load the pre-redirect URI.
-  chan.asyncOpen2(new ChannelListener(finish_test, null));
+  chan.asyncOpen(new ChannelListener(finish_test, null));
   do_test_pending();
 }
 

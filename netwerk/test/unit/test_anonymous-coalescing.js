@@ -1,5 +1,4 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 /*
 - test to check we use only a single connection for both onymous and anonymous requests over an existing h2 session
@@ -132,7 +131,7 @@ function doTest()
   chan.loadFlags = loadFlags;
 
   var listener = new Listener();
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function doTest1()

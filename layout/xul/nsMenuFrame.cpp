@@ -51,7 +51,7 @@ using namespace mozilla;
 #define NS_MENU_POPUP_LIST_INDEX 0
 
 #if defined(XP_WIN)
-#define NSCONTEXTMENUISMOUSEUP 1
+#  define NSCONTEXTMENUISMOUSEUP 1
 #endif
 
 NS_DECLARE_FRAME_PROPERTY_FRAMELIST(PopupListProperty)
@@ -142,13 +142,15 @@ class nsMenuAttributeChangedEvent : public Runnable {
 // Wrappers for creating a new menu popup container
 //
 nsIFrame* NS_NewMenuFrame(nsIPresShell* aPresShell, ComputedStyle* aStyle) {
-  nsMenuFrame* it = new (aPresShell) nsMenuFrame(aStyle);
+  nsMenuFrame* it =
+      new (aPresShell) nsMenuFrame(aStyle, aPresShell->GetPresContext());
   it->SetIsMenu(true);
   return it;
 }
 
 nsIFrame* NS_NewMenuItemFrame(nsIPresShell* aPresShell, ComputedStyle* aStyle) {
-  nsMenuFrame* it = new (aPresShell) nsMenuFrame(aStyle);
+  nsMenuFrame* it =
+      new (aPresShell) nsMenuFrame(aStyle, aPresShell->GetPresContext());
   it->SetIsMenu(false);
   return it;
 }
@@ -159,8 +161,8 @@ NS_QUERYFRAME_HEAD(nsMenuFrame)
   NS_QUERYFRAME_ENTRY(nsMenuFrame)
 NS_QUERYFRAME_TAIL_INHERITING(nsBoxFrame)
 
-nsMenuFrame::nsMenuFrame(ComputedStyle* aStyle)
-    : nsBoxFrame(aStyle, kClassID),
+nsMenuFrame::nsMenuFrame(ComputedStyle* aStyle, nsPresContext* aPresContext)
+    : nsBoxFrame(aStyle, aPresContext, kClassID),
       mIsMenu(false),
       mChecked(false),
       mIgnoreAccelTextChange(false),
@@ -662,8 +664,11 @@ bool nsMenuFrame::IsSizedToPopup(nsIContent* aContent, bool aRequireAlways) {
   nsAutoString sizedToPopup;
   aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::sizetopopup,
                                  sizedToPopup);
+  bool sizedToPopupSetToPref =
+      sizedToPopup.EqualsLiteral("pref") ||
+      (sizedToPopup.IsEmpty() && aContent->IsXULElement(nsGkAtoms::menulist));
   return sizedToPopup.EqualsLiteral("always") ||
-         (!aRequireAlways && sizedToPopup.EqualsLiteral("pref"));
+         (!aRequireAlways && sizedToPopupSetToPref);
 }
 
 nsSize nsMenuFrame::GetXULMinSize(nsBoxLayoutState& aBoxLayoutState) {

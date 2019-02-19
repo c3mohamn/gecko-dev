@@ -484,12 +484,6 @@ class CompileFlags(BaseCompileFlags):
 
     def _warnings_as_errors(self):
         warnings_as_errors = self._context.config.substs.get('WARNINGS_AS_ERRORS')
-        if self._context.config.substs.get('MOZ_PGO'):
-            # Don't use warnings-as-errors in MSVC PGO builds because it is suspected of
-            # causing problems in that situation. (See bug 437002.)
-            if self._context.config.substs.get('CC_TYPE') == 'msvc':
-                warnings_as_errors = None
-
         if warnings_as_errors:
             return [warnings_as_errors]
 
@@ -1764,6 +1758,13 @@ VARIABLES = {
         This is the name of the ``.xpt`` file that is created by linking
         ``XPIDL_SOURCES`` together. If unspecified, it defaults to be the same
         as ``MODULE``.
+        """),
+
+    'XPCOM_MANIFESTS': (ContextDerivedTypedList(SourcePath, StrictOrderingOnAppendList), list,
+        """XPCOM Component Manifest Files.
+
+        This is a list of files that define XPCOM components to be added
+        to the component registry.
         """),
 
     'PREPROCESSED_IPDL_SOURCES': (StrictOrderingOnAppendList, list,

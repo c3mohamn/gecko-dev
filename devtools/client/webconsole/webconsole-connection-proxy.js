@@ -17,13 +17,13 @@ const PREF_CONNECTION_TIMEOUT = "devtools.debugger.remote-timeout";
  * and the application we connect to through the remote debug protocol.
  *
  * @constructor
- * @param object webConsoleFrame
- *        The WebConsoleFrame object that owns this connection proxy.
+ * @param {WebConsoleUI} webConsoleUI
+ *        A WebConsoleUI instance that owns this connection proxy.
  * @param RemoteTarget target
  *        The target that the console will connect to.
  */
-function WebConsoleConnectionProxy(webConsoleFrame, target) {
-  this.webConsoleFrame = webConsoleFrame;
+function WebConsoleConnectionProxy(webConsoleUI, target) {
+  this.webConsoleUI = webConsoleUI;
   this.target = target;
   this.webConsoleClient = target.activeConsole;
 
@@ -43,12 +43,12 @@ function WebConsoleConnectionProxy(webConsoleFrame, target) {
 
 WebConsoleConnectionProxy.prototype = {
   /**
-   * The owning Web Console Frame instance.
+   * The owning WebConsoleUI instance.
    *
-   * @see WebConsoleFrame
+   * @see WebConsoleUI
    * @type object
    */
-  webConsoleFrame: null,
+  webConsoleUI: null,
 
   /**
    * The target that the console connects to.
@@ -77,6 +77,12 @@ WebConsoleConnectionProxy.prototype = {
    * @type boolean
    */
   connected: false,
+
+  /**
+   * Tells if the console is attached.
+   * @type boolean
+   */
+  isAttached: null,
 
   /**
    * Timer used for the connection.
@@ -126,9 +132,9 @@ WebConsoleConnectionProxy.prototype = {
     this.target.on("navigate", this._onTabNavigated);
 
     if (this.target.isBrowsingContext) {
-      this.webConsoleFrame.onLocationChange(this.target.url, this.target.title);
+      this.webConsoleUI.onLocationChange(this.target.url, this.target.title);
     }
-    this._attachConsole();
+    this.isAttached = this._attachConsole();
 
     return connPromise;
   },
@@ -149,6 +155,7 @@ WebConsoleConnectionProxy.prototype = {
   /**
    * Attach to the Web Console actor.
    * @private
+   * @returns Promise
    */
   _attachConsole: function() {
     const listeners = ["PageError", "ConsoleAPI", "NetworkActivity"];
@@ -157,7 +164,7 @@ WebConsoleConnectionProxy.prototype = {
     if (this.target.chrome && !this.target.isAddon) {
       listeners.push("ContentProcessMessages");
     }
-    this.webConsoleClient.startListeners(listeners)
+    return this.webConsoleClient.startListeners(listeners)
       .then(this._onAttachConsole, error => {
         console.error("attachConsole failed: " + error);
         this._connectDefer.reject(error);
@@ -174,50 +181,49 @@ WebConsoleConnectionProxy.prototype = {
    *        The WebConsoleClient instance for the attached console, for the
    *        specific tab we work with.
    */
-  _onAttachConsole: function(response) {
+  _onAttachConsole: async function(response) {
     let saveBodies = Services.prefs.getBoolPref(
       "devtools.netmonitor.saveRequestAndResponseBodies");
 
     // There is no way to view response bodies from the Browser Console, so do
     // not waste the memory.
-    if (this.webConsoleFrame.isBrowserConsole) {
+    if (this.webConsoleUI.isBrowserConsole) {
       saveBodies = false;
     }
 
-    this.webConsoleFrame.setSaveRequestAndResponseBodies(saveBodies);
+    this.webConsoleUI.setSaveRequestAndResponseBodies(saveBodies);
 
     this.webConsoleClient.on("networkEvent", this._onNetworkEvent);
     this.webConsoleClient.on("networkEventUpdate", this._onNetworkEventUpdate);
 
     const msgs = ["PageError", "ConsoleAPI"];
-    this.webConsoleClient.getCachedMessages(msgs, this._onCachedMessages);
-
-    this.webConsoleFrame._onUpdateListeners();
+    const cachedMessages = await this.webConsoleClient.getCachedMessages(msgs);
+    this._onCachedMessages(cachedMessages);
   },
 
   /**
    * Dispatch a message add on the new frontend and emit an event for tests.
    */
   dispatchMessageAdd: function(packet) {
-    this.webConsoleFrame.consoleOutput.dispatchMessageAdd(packet);
+    this.webConsoleUI.wrapper.dispatchMessageAdd(packet);
   },
 
   /**
    * Batched dispatch of messages.
    */
   dispatchMessagesAdd: function(packets) {
-    this.webConsoleFrame.consoleOutput.dispatchMessagesAdd(packets);
+    this.webConsoleUI.wrapper.dispatchMessagesAdd(packets);
   },
 
   /**
    * Dispatch a message event on the new frontend and emit an event for tests.
    */
   dispatchMessageUpdate: function(networkInfo, response) {
-    this.webConsoleFrame.consoleOutput.dispatchMessageUpdate(networkInfo, response);
+    this.webConsoleUI.wrapper.dispatchMessageUpdate(networkInfo, response);
   },
 
   dispatchRequestUpdate: function(id, data) {
-    this.webConsoleFrame.consoleOutput.dispatchRequestUpdate(id, data);
+    this.webConsoleUI.wrapper.dispatchRequestUpdate(id, data);
   },
 
   /**
@@ -227,7 +233,7 @@ WebConsoleConnectionProxy.prototype = {
    * @param object response
    *        The JSON response object received from the server.
    */
-  _onCachedMessages: function(response) {
+  _onCachedMessages: async function(response) {
     if (response.error) {
       console.error("Web Console getCachedMessages error: " + response.error +
                     " " + response.message);
@@ -247,7 +253,7 @@ WebConsoleConnectionProxy.prototype = {
 
     this.dispatchMessagesAdd(messages);
     if (!this.webConsoleClient.hasNativeConsoleAPI) {
-      this.webConsoleFrame.logWarningAboutReplacedAPI();
+      await this.webConsoleUI.logWarningAboutReplacedAPI();
     }
 
     this.connected = true;
@@ -265,7 +271,7 @@ WebConsoleConnectionProxy.prototype = {
    *        The message received from the server.
    */
   _onPageError: function(type, packet) {
-    if (!this.webConsoleFrame || packet.from != this.webConsoleClient.actor) {
+    if (!this.webConsoleUI || packet.from != this.webConsoleClient.actor) {
       return;
     }
     this.dispatchMessageAdd(packet);
@@ -281,7 +287,7 @@ WebConsoleConnectionProxy.prototype = {
    *        The message received from the server.
    */
   _onLogMessage: function(type, packet) {
-    if (!this.webConsoleFrame || packet.from != this.webConsoleClient.actor) {
+    if (!this.webConsoleUI || packet.from != this.webConsoleClient.actor) {
       return;
     }
     this.dispatchMessageAdd(packet);
@@ -297,11 +303,12 @@ WebConsoleConnectionProxy.prototype = {
    *        The message received from the server.
    */
   _onConsoleAPICall: function(type, packet) {
-    if (!this.webConsoleFrame || packet.from != this.webConsoleClient.actor) {
+    if (!this.webConsoleUI || packet.from != this.webConsoleClient.actor) {
       return;
     }
     this.dispatchMessageAdd(packet);
   },
+
   /**
    * The "networkEvent" message type handler. We redirect any message to
    * the UI for displaying.
@@ -311,7 +318,7 @@ WebConsoleConnectionProxy.prototype = {
    *        The network request information.
    */
   _onNetworkEvent: function(networkInfo) {
-    if (!this.webConsoleFrame) {
+    if (!this.webConsoleUI) {
       return;
     }
     this.dispatchMessageAdd(networkInfo);
@@ -325,7 +332,7 @@ WebConsoleConnectionProxy.prototype = {
    *        The update response received from the server.
    */
   _onNetworkEventUpdate: function(response) {
-    if (!this.webConsoleFrame) {
+    if (!this.webConsoleUI) {
       return;
     }
     this.dispatchMessageUpdate(response.networkInfo, response);
@@ -341,8 +348,8 @@ WebConsoleConnectionProxy.prototype = {
    *        The message received from the server.
    */
   _onLastPrivateContextExited: function(type, packet) {
-    if (this.webConsoleFrame && packet.from == this.webConsoleClient.actor) {
-      this.webConsoleFrame.clearPrivateMessages();
+    if (this.webConsoleUI && packet.from == this.webConsoleClient.actor) {
+      this.webConsoleUI.clearPrivateMessages();
     }
   },
 
@@ -354,11 +361,11 @@ WebConsoleConnectionProxy.prototype = {
    *        The message received from the server.
    */
   _onTabNavigated: function(packet) {
-    if (!this.webConsoleFrame) {
+    if (!this.webConsoleUI) {
       return;
     }
 
-    this.webConsoleFrame.handleTabNavigated(packet);
+    this.webConsoleUI.handleTabNavigated(packet);
   },
 
   /**
@@ -369,11 +376,11 @@ WebConsoleConnectionProxy.prototype = {
    *        The message received from the server.
    */
   _onTabWillNavigate: function(packet) {
-    if (!this.webConsoleFrame) {
+    if (!this.webConsoleUI) {
       return;
     }
 
-    this.webConsoleFrame.handleTabWillNavigate(packet);
+    this.webConsoleUI.handleTabWillNavigate(packet);
   },
 
   /**
@@ -394,13 +401,17 @@ WebConsoleConnectionProxy.prototype = {
    * @return object
    *         A promise object that is resolved when disconnect completes.
    */
-  disconnect: function() {
+  disconnect: async function() {
     if (this._disconnecter) {
       return this._disconnecter.promise;
     }
 
     this._disconnecter = defer();
 
+    // allow the console to finish attaching if it started.
+    if (this.isAttached) {
+      await this.isAttached;
+    }
     if (!this.client) {
       this._disconnecter.resolve(null);
       return this._disconnecter.promise;
@@ -420,7 +431,7 @@ WebConsoleConnectionProxy.prototype = {
     this.webConsoleClient = null;
     this.target = null;
     this.connected = false;
-    this.webConsoleFrame = null;
+    this.webConsoleUI = null;
     this._disconnecter.resolve(null);
 
     return this._disconnecter.promise;

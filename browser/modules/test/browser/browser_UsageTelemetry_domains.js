@@ -24,6 +24,7 @@ function browserLocationChanged(browser) {
       onStateChange() {},
       onSecurityChange() {},
       onStatusChange() {},
+      onContentBlockingEvent() {},
       onLocationChange(aWebProgress, aRequest, aURI, aFlags) {
         if (!(aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_ERROR_PAGE)) {
           browser.webProgress.removeProgressListener(filter);
@@ -49,8 +50,7 @@ add_task(async function test_URIAndDomainCounts() {
 
   let checkCounts = (countsObject) => {
     // Get a snapshot of the scalars and then clear them.
-    const scalars = TelemetryTestUtils.getParentProcessScalars(
-      Ci.nsITelemetry.DATASET_RELEASE_CHANNEL_OPTIN);
+    const scalars = TelemetryTestUtils.getProcessScalars("parent");
     TelemetryTestUtils.assertScalar(scalars, TOTAL_URI_COUNT, countsObject.totalURIs,
       "The URI scalar must contain the expected value.");
     TelemetryTestUtils.assertScalar(scalars, UNIQUE_DOMAINS_COUNT, countsObject.domainCount,

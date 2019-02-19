@@ -106,14 +106,6 @@ VERSION_NUMBER		= 50
 CONFIG_TOOLS	= $(MOZ_BUILD_ROOT)/config
 AUTOCONF_TOOLS	= $(MOZILLA_DIR)/build/autoconf
 
-ifdef _MSC_VER
-# clang-cl is smart enough to generate dependencies directly.
-ifeq (,$(CLANG_CL)$(MOZ_USING_SCCACHE))
-CC_WRAPPER ?= $(call py_action,cl)
-CXX_WRAPPER ?= $(call py_action,cl)
-endif # CLANG_CL/MOZ_USING_SCCACHE
-endif # _MSC_VER
-
 CC := $(CC_WRAPPER) $(CC)
 CXX := $(CXX_WRAPPER) $(CXX)
 MKDIR ?= mkdir
@@ -201,13 +193,6 @@ HOST_CFLAGS = $(COMPUTED_HOST_CFLAGS) $(_DEPEND_CFLAGS)
 HOST_CXXFLAGS = $(COMPUTED_HOST_CXXFLAGS) $(_DEPEND_CFLAGS)
 HOST_C_LDFLAGS = $(COMPUTED_HOST_C_LDFLAGS)
 HOST_CXX_LDFLAGS = $(COMPUTED_HOST_CXX_LDFLAGS)
-# Win32 Cross-builds on win64 need to override LIB when invoking the linker,
-# which we do for rust through cargo-linker.bat, so we abuse it here.
-# Ideally, we'd empty LIB and pass -LIBPATH options to the linker somehow but
-# we don't have this in place for rust, so...
-ifdef WIN64_CARGO_LINKER
-HOST_LINKER = $(topobjdir)/build/win64/cargo-linker.bat
-endif
 
 ifdef MOZ_LTO
 ifeq (Darwin,$(OS_TARGET))
@@ -300,7 +285,7 @@ WIN32_EXE_LDFLAGS	+= $(WIN32_CONSOLE_EXE_LDFLAGS)
 endif
 endif # WINNT
 
-ifdef _MSC_VER
+ifneq (,$(filter msvc clang-cl,$(CC_TYPE)))
 ifeq ($(CPU_ARCH),x86_64)
 # Normal operation on 64-bit Windows needs 2 MB of stack. (Bug 582910)
 # ASAN requires 6 MB of stack.
@@ -448,9 +433,3 @@ endif
 endif
 
 PLY_INCLUDE = -I$(MOZILLA_DIR)/other-licenses/ply
-
-export CL_INCLUDES_PREFIX
-# Make sure that the build system can handle non-ASCII characters
-# in environment variables to prevent it from breking silently on
-# non-English systems.
-export NONASCII

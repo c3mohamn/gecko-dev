@@ -74,7 +74,7 @@ class nsDisplayTableCellSelection final : public nsDisplayItem {
 
 nsTableCellFrame::nsTableCellFrame(ComputedStyle* aStyle,
                                    nsTableFrame* aTableFrame, ClassID aID)
-    : nsContainerFrame(aStyle, aID),
+    : nsContainerFrame(aStyle, aTableFrame->PresContext(), aID),
       mDesiredSize(aTableFrame->GetWritingMode()) {
   mColIndex = 0;
   mPriorAvailISize = 0;
@@ -653,7 +653,7 @@ int32_t nsTableCellFrame::GetRowSpan() {
   int32_t rowSpan = 1;
 
   // Don't look at the content's rowspan if we're a pseudo cell
-  if (!Style()->GetPseudo()) {
+  if (!Style()->IsPseudoOrAnonBox()) {
     dom::Element* elem = mContent->AsElement();
     const nsAttrValue* attr = elem->GetParsedAttr(nsGkAtoms::rowspan);
     // Note that we don't need to check the tag name, because only table cells
@@ -670,7 +670,7 @@ int32_t nsTableCellFrame::GetColSpan() {
   int32_t colSpan = 1;
 
   // Don't look at the content's colspan if we're a pseudo cell
-  if (!Style()->GetPseudo()) {
+  if (!Style()->IsPseudoOrAnonBox()) {
     dom::Element* elem = mContent->AsElement();
     const nsAttrValue* attr = elem->GetParsedAttr(
         MOZ_UNLIKELY(elem->IsMathMLElement()) ? nsGkAtoms::columnspan_
@@ -721,7 +721,7 @@ nsTableCellFrame::IntrinsicISizeOffsets(nscoord aPercentageBasis) {
 }
 
 #ifdef DEBUG
-#define PROBABLY_TOO_LARGE 1000000
+#  define PROBABLY_TOO_LARGE 1000000
 static void DebugCheckChildSize(nsIFrame* aChild, ReflowOutput& aMet) {
   WritingMode wm = aMet.GetWritingMode();
   if ((aMet.ISize(wm) < 0) || (aMet.ISize(wm) > PROBABLY_TOO_LARGE)) {

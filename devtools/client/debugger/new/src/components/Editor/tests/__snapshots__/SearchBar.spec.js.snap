@@ -56,6 +56,8 @@ exports[`SearchBar should render 1`] = `
         svgName="whole-word-match"
         tooltip="Whole word"
       />
+    </div>
+    <React.Fragment>
       <span
         className="pipe-divider"
       />
@@ -63,7 +65,7 @@ exports[`SearchBar should render 1`] = `
         buttonClass="big"
         handleClick={[Function]}
       />
-    </div>
+    </React.Fragment>
   </div>
 </div>
 `;
@@ -127,6 +129,8 @@ exports[`showErrorEmoji false if no query + no results 1`] = `
         svgName="whole-word-match"
         tooltip="Whole word"
       />
+    </div>
+    <React.Fragment>
       <span
         className="pipe-divider"
       />
@@ -134,7 +138,7 @@ exports[`showErrorEmoji false if no query + no results 1`] = `
         buttonClass="big"
         handleClick={[Function]}
       />
-    </div>
+    </React.Fragment>
   </div>
 </div>
 `;
@@ -196,6 +200,8 @@ exports[`showErrorEmoji false if query + results 1`] = `
         svgName="whole-word-match"
         tooltip="Whole word"
       />
+    </div>
+    <React.Fragment>
       <span
         className="pipe-divider"
       />
@@ -203,7 +209,7 @@ exports[`showErrorEmoji false if query + results 1`] = `
         buttonClass="big"
         handleClick={[Function]}
       />
-    </div>
+    </React.Fragment>
   </div>
 </div>
 `;
@@ -265,6 +271,8 @@ exports[`showErrorEmoji true if query + no results 1`] = `
         svgName="whole-word-match"
         tooltip="Whole word"
       />
+    </div>
+    <React.Fragment>
       <span
         className="pipe-divider"
       />
@@ -272,7 +280,7 @@ exports[`showErrorEmoji true if query + no results 1`] = `
         buttonClass="big"
         handleClick={[Function]}
       />
-    </div>
+    </React.Fragment>
   </div>
 </div>
 `;

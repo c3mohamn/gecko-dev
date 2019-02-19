@@ -71,6 +71,7 @@
 #include "nsIXULWindow.h"
 #include "nsIXULBrowserWindow.h"
 #include "nsGlobalWindow.h"
+#include "ReferrerInfo.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1077,9 +1078,9 @@ nsresult nsWindowWatcher::OpenWindowInternal(
       doc = parentWindow->GetExtantDoc();
     }
     if (doc) {
-      // Set the referrer
-      loadState->SetReferrer(doc->GetDocumentURI());
-      loadState->SetReferrerPolicy(doc->GetReferrerPolicy());
+      nsCOMPtr<nsIReferrerInfo> referrerInfo =
+          new ReferrerInfo(doc->GetDocumentURI(), doc->GetReferrerPolicy());
+      loadState->SetReferrerInfo(referrerInfo);
     }
   }
 
@@ -1774,7 +1775,9 @@ uint32_t nsWindowWatcher::CalculateChromeFlagsForParent(
   chromeFlags |= WinHasOption(aFeatures, "suppressanimation", 0, nullptr)
                      ? nsIWebBrowserChrome::CHROME_SUPPRESS_ANIMATION
                      : 0;
-
+  chromeFlags |= WinHasOption(aFeatures, "alwaysontop", 0, nullptr)
+                     ? nsIWebBrowserChrome::CHROME_ALWAYS_ON_TOP
+                     : 0;
   chromeFlags |= WinHasOption(aFeatures, "chrome", 0, nullptr)
                      ? nsIWebBrowserChrome::CHROME_OPENAS_CHROME
                      : 0;

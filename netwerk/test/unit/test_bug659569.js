@@ -1,6 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var httpserver = new HttpServer();
 
@@ -32,7 +31,7 @@ function run_test()
 
     // load first time
     var channel = setupChannel("/redirect1");
-    channel.asyncOpen2(new ChannelListener(checkValueAndTrigger, null));
+    channel.asyncOpen(new ChannelListener(checkValueAndTrigger, null));
     do_test_pending();
 }
 

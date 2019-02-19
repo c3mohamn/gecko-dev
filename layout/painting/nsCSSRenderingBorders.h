@@ -296,7 +296,7 @@ class nsCSSBorderImageRenderer final {
   nsRect mClip;
   mozilla::StyleBorderImageRepeat mRepeatModeHorizontal;
   mozilla::StyleBorderImageRepeat mRepeatModeVertical;
-  uint8_t mFill;
+  bool mFill;
 
   friend class nsDisplayBorder;
   friend struct nsCSSRendering;
@@ -304,7 +304,7 @@ class nsCSSBorderImageRenderer final {
 
 namespace mozilla {
 #ifdef DEBUG_NEW_BORDERS
-#include <stdarg.h>
+#  include <stdarg.h>
 
 static inline void PrintAsString(const mozilla::gfx::Point& p) {
   fprintf(stderr, "[%f,%f]", p.x, p.y);

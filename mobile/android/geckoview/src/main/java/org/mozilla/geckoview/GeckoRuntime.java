@@ -187,6 +187,10 @@ public final class GeckoRuntime implements Parcelable {
             flags |= GeckoThread.FLAG_DEBUGGING;
         }
 
+        if (settings.getRemoteDebuggingEnabled()) {
+            flags |= GeckoThread.FLAG_ENABLE_MARIONETTE;
+        }
+
         final Class<?> crashHandler = settings.getCrashHandler();
         if (crashHandler != null) {
             try {
@@ -208,6 +212,7 @@ public final class GeckoRuntime implements Parcelable {
         GeckoAppShell.setDisplayDpiOverride(settings.getDisplayDpiOverride());
         GeckoAppShell.setScreenSizeOverride(settings.getScreenSizeOverride());
         GeckoAppShell.setCrashHandlerService(settings.getCrashHandler());
+        GeckoFontScaleListener.getInstance().attachToContext(context, settings);
 
         final GeckoThread.InitInfo info = new GeckoThread.InitInfo();
         info.args = settings.getArguments();
@@ -230,8 +235,8 @@ public final class GeckoRuntime implements Parcelable {
         // Bug 1453062 -- the EventDispatcher should really live here (or in GeckoThread)
         EventDispatcher.getInstance().registerUiThreadListener(mEventListener, "Gecko:Exited");
 
-        mSettings.runtime = this;
-        mSettings.flush();
+        // Attach and commit settings.
+        mSettings.attachTo(this);
 
         // Initialize the system ClipboardManager by accessing it on the main thread.
         GeckoAppShell.getApplicationContext().getSystemService(Context.CLIPBOARD_SERVICE);

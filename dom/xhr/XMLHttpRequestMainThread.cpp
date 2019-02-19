@@ -8,7 +8,7 @@
 
 #include <algorithm>
 #ifndef XP_WIN
-#include <unistd.h>
+#  include <unistd.h>
 #endif
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/CheckedInt.h"
@@ -99,7 +99,7 @@
 // Undefine the macro of CreateFile to avoid FileCreatorHelper#CreateFile being
 // replaced by FileCreatorHelper#CreateFileW.
 #ifdef CreateFile
-#undef CreateFile
+#  undef CreateFile
 #endif
 
 using namespace mozilla::net;
@@ -2620,7 +2620,7 @@ nsresult XMLHttpRequestMainThread::InitiateFetch(
   }
 
   // Start reading from the channel
-  rv = mChannel->AsyncOpen2(listener);
+  rv = mChannel->AsyncOpen(listener);
   listener = nullptr;
   if (NS_WARN_IF(NS_FAILED(rv))) {
     // Drop our ref to the channel to avoid cycles. Also drop channel's

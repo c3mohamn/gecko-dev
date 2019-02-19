@@ -19,6 +19,7 @@
 #include "proxy/ScriptedProxyHandler.h"
 #include "vm/JSContext.h"
 #include "vm/JSFunction.h"
+#include "vm/JSObject.h"
 #include "vm/WrapperObject.h"
 
 #include "gc/Marking-inl.h"
@@ -37,14 +38,7 @@ void js::AutoEnterPolicy::reportErrorIfExceptionIsNotPending(JSContext* cx,
   if (JSID_IS_VOID(id)) {
     ReportAccessDenied(cx);
   } else {
-    UniqueChars prop =
-        IdToPrintableUTF8(cx, id, IdToPrintableBehavior::IdIsPropertyKey);
-    if (!prop) {
-      return;
-    }
-
-    JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
-                             JSMSG_PROPERTY_ACCESS_DENIED, prop.get());
+    Throw(cx, id, JSMSG_PROPERTY_ACCESS_DENIED);
   }
 }
 
@@ -78,31 +72,6 @@ JS_FRIEND_API void js::assertEnteredPolicy(JSContext* cx, JSObject* proxy,
   MOZ_ASSERT(cx->enteredPolicy->enteredAction & act);
 }
 #endif
-
-bool Proxy::getPropertyDescriptor(JSContext* cx, HandleObject proxy,
-                                  HandleId id,
-                                  MutableHandle<PropertyDescriptor> desc) {
-  if (!CheckRecursionLimit(cx)) {
-    return false;
-  }
-
-  const BaseProxyHandler* handler = proxy->as<ProxyObject>().handler();
-  desc.object().set(
-      nullptr);  // default result if we refuse to perform this action
-  AutoEnterPolicy policy(cx, handler, proxy, id,
-                         BaseProxyHandler::GET_PROPERTY_DESCRIPTOR, true);
-  if (!policy.allowed()) {
-    return policy.returnValue();
-  }
-
-  // Special case. See the comment on BaseProxyHandler::mHasPrototype.
-  if (handler->hasPrototype()) {
-    return handler->BaseProxyHandler::getPropertyDescriptor(cx, proxy, id,
-                                                            desc);
-  }
-
-  return handler->getPropertyDescriptor(cx, proxy, id, desc);
-}
 
 bool Proxy::getOwnPropertyDescriptor(JSContext* cx, HandleObject proxy,
                                      HandleId id,
@@ -472,49 +441,45 @@ bool Proxy::getOwnEnumerablePropertyKeys(JSContext* cx, HandleObject proxy,
   return handler->getOwnEnumerablePropertyKeys(cx, proxy, props);
 }
 
-JSObject* Proxy::enumerate(JSContext* cx, HandleObject proxy) {
+bool Proxy::enumerate(JSContext* cx, HandleObject proxy, AutoIdVector& props) {
   if (!CheckRecursionLimit(cx)) {
-    return nullptr;
+    return false;
   }
 
   const BaseProxyHandler* handler = proxy->as<ProxyObject>().handler();
   if (handler->hasPrototype()) {
-    AutoIdVector props(cx);
     if (!Proxy::getOwnEnumerablePropertyKeys(cx, proxy, props)) {
-      return nullptr;
+      return false;
     }
 
     RootedObject proto(cx);
     if (!GetPrototype(cx, proxy, &proto)) {
-      return nullptr;
+      return false;
     }
     if (!proto) {
-      return EnumeratedIdVectorToIterator(cx, proxy, props);
+      return true;
     }
+
     cx->check(proxy, proto);
 
     AutoIdVector protoProps(cx);
     if (!GetPropertyKeys(cx, proto, 0, &protoProps)) {
-      return nullptr;
+      return false;
     }
-    if (!AppendUnique(cx, props, protoProps)) {
-      return nullptr;
-    }
-    return EnumeratedIdVectorToIterator(cx, proxy, props);
+    return AppendUnique(cx, props, protoProps);
   }
 
   AutoEnterPolicy policy(cx, handler, proxy, JSID_VOIDHANDLE,
                          BaseProxyHandler::ENUMERATE, true);
 
   // If the policy denies access but wants us to return true, we need
-  // to hand a valid (empty) iterator object to the caller.
+  // to return an empty |props| list.
   if (!policy.allowed()) {
-    if (!policy.returnValue()) {
-      return nullptr;
-    }
-    return NewEmptyPropertyIterator(cx);
+    MOZ_ASSERT(props.empty());
+    return policy.returnValue();
   }
-  return handler->enumerate(cx, proxy);
+
+  return handler->enumerate(cx, proxy, props);
 }
 
 bool Proxy::call(JSContext* cx, HandleObject proxy, const CallArgs& args) {

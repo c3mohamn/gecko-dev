@@ -27,7 +27,6 @@
 #include "nsIProgressEventSink.h"
 #include "nsIRadioGroupContainer.h"
 #include "nsIScriptObjectPrincipal.h"
-#include "nsISecurityEventSink.h"
 #include "nsIScriptGlobalObject.h"  // for member (in nsCOMPtr)
 #include "nsIServiceManager.h"
 #include "nsIURI.h"  // for use in inline functions
@@ -43,6 +42,7 @@
 #include "mozilla/net/ReferrerPolicy.h"  // for member
 #include "mozilla/UseCounter.h"
 #include "mozilla/WeakPtr.h"
+#include "mozilla/StaticPresData.h"
 #include "Units.h"
 #include "nsContentListDeclarations.h"
 #include "nsExpirationTracker.h"
@@ -63,11 +63,11 @@
 
 // windows.h #defines CreateEvent
 #ifdef CreateEvent
-#undef CreateEvent
+#  undef CreateEvent
 #endif
 
 #ifdef MOZILLA_INTERNAL_API
-#include "mozilla/dom/DocumentBinding.h"
+#  include "mozilla/dom/DocumentBinding.h"
 #else
 namespace mozilla {
 namespace dom {
@@ -123,6 +123,7 @@ class nsDOMCaretPosition;
 class nsViewportInfo;
 class nsIGlobalObject;
 class nsIXULWindow;
+struct nsFont;
 
 namespace mozilla {
 class AbstractThread;
@@ -136,6 +137,7 @@ class FullscreenRequest;
 class PendingAnimationTracker;
 class ServoStyleSet;
 class SMILAnimationController;
+enum class StyleCursorKind : uint8_t;
 template <typename>
 class OwningNonNull;
 struct URLExtraData;
@@ -405,7 +407,6 @@ class ExternalResourceMap {
     DECL_SHIM(nsILoadContext, NSILOADCONTEXT)
     DECL_SHIM(nsIProgressEventSink, NSIPROGRESSEVENTSINK)
     DECL_SHIM(nsIChannelEventSink, NSICHANNELEVENTSINK)
-    DECL_SHIM(nsISecurityEventSink, NSISECURITYEVENTSINK)
     DECL_SHIM(nsIApplicationCacheContainer, NSIAPPLICATIONCACHECONTAINER)
 #undef DECL_SHIM
   };
@@ -436,7 +437,8 @@ class Document : public nsINode,
                  public nsIScriptObjectPrincipal,
                  public nsIApplicationCacheContainer,
                  public nsStubMutationObserver,
-                 public DispatcherTrait {
+                 public DispatcherTrait,
+                 public SupportsWeakPtr<Document> {
  protected:
   explicit Document(const char* aContentType);
   virtual ~Document();
@@ -445,8 +447,11 @@ class Document : public nsINode,
   Document& operator=(const Document&) = delete;
 
  public:
-  typedef mozilla::dom::ExternalResourceMap::ExternalResourceLoad ExternalResourceLoad;
+  typedef mozilla::dom::ExternalResourceMap::ExternalResourceLoad
+      ExternalResourceLoad;
   typedef net::ReferrerPolicy ReferrerPolicyEnum;
+
+  MOZ_DECLARE_WEAKREFERENCE_TYPENAME(Document)
 
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOCUMENT_IID)
 
@@ -608,6 +613,8 @@ class Document : public nsINode,
   }
   nsresult CloneDocHelper(Document* clone) const;
 
+  Document* GetLatestStaticClone() const { return mLatestStaticClone; }
+
   /**
    * Signal that the document title may have changed
    * (see Document::GetTitle).
@@ -642,6 +649,13 @@ class Document : public nsINode,
   nsIURI* GetOriginalURI() const { return mOriginalURI; }
 
   /**
+   * Return the base domain of the document.  This has been computed using
+   * mozIThirdPartyUtil::GetBaseDomain() and can be used for third-party
+   * checks.  When the URI of the document changes, this value is recomputed.
+   */
+  nsCString GetBaseDomain() const { return mBaseDomain; }
+
+  /**
    * Set the URI for the document.  This also sets the document's original URI,
    * if it's null.
    */
@@ -672,8 +686,9 @@ class Document : public nsINode,
   /**
    * Return the referrer policy of the document. Return "default" if there's no
    * valid meta referrer tag found in the document.
+   * Referrer policy should be inherited from parent if the iframe is srcdoc
    */
-  ReferrerPolicyEnum GetReferrerPolicy() const { return mReferrerPolicy; }
+  ReferrerPolicyEnum GetReferrerPolicy() const;
 
   /**
    * GetReferrerPolicy() for Document.webidl.
@@ -751,6 +766,22 @@ class Document : public nsINode,
   nsIURI* GetFallbackBaseURI() const {
     if (mIsSrcdocDocument && mParentDocument) {
       return mParentDocument->GetDocBaseURI();
+    }
+    return mDocumentURI;
+  }
+
+  /**
+   * Return the referrer from document URI as defined in the Referrer Policy
+   * specification.
+   * https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer
+   * While document is an iframe srcdoc document, let document be document’s
+   * browsing context’s browsing context container’s node document.
+   * Then referrer should be document's URL
+   */
+
+  nsIURI* GetDocumentURIAsReferrer() const {
+    if (mIsSrcdocDocument && mParentDocument) {
+      return mParentDocument->GetDocumentURIAsReferrer();
     }
     return mDocumentURI;
   }
@@ -984,6 +1015,22 @@ class Document : public nsINode,
   }
 
   /**
+   * Get fingerprinting content blocked flag for this document.
+   */
+  bool GetHasFingerprintingContentBlocked() {
+    return mContentBlockingLog.HasBlockedAnyOfType(
+        nsIWebProgressListener::STATE_BLOCKED_FINGERPRINTING_CONTENT);
+  }
+
+  /**
+   * Get cryptomining content blocked flag for this document.
+   */
+  bool GetHasCryptominingContentBlocked() {
+    return mContentBlockingLog.HasBlockedAnyOfType(
+        nsIWebProgressListener::STATE_BLOCKED_CRYPTOMINING_CONTENT);
+  }
+
+  /**
    * Get all cookies blocked flag for this document.
    */
   bool GetHasAllCookiesBlocked() {
@@ -1019,17 +1066,39 @@ class Document : public nsINode,
    * Set the tracking content blocked flag for this document.
    */
   void SetHasTrackingContentBlocked(bool aHasTrackingContentBlocked,
-                                    const nsAString& aOriginBlocked) {
+                                    const nsACString& aOriginBlocked) {
     RecordContentBlockingLog(
         aOriginBlocked, nsIWebProgressListener::STATE_BLOCKED_TRACKING_CONTENT,
         aHasTrackingContentBlocked);
   }
 
   /**
+   * Set the fingerprinting content blocked flag for this document.
+   */
+  void SetHasFingerprintingContentBlocked(bool aHasFingerprintingContentBlocked,
+                                          const nsACString& aOriginBlocked) {
+    RecordContentBlockingLog(
+        aOriginBlocked,
+        nsIWebProgressListener::STATE_BLOCKED_FINGERPRINTING_CONTENT,
+        aHasFingerprintingContentBlocked);
+  }
+
+  /**
+   * Set the cryptomining content blocked flag for this document.
+   */
+  void SetHasCryptominingContentBlocked(bool aHasCryptominingContentBlocked,
+                                        const nsACString& aOriginBlocked) {
+    RecordContentBlockingLog(
+        aOriginBlocked,
+        nsIWebProgressListener::STATE_BLOCKED_CRYPTOMINING_CONTENT,
+        aHasCryptominingContentBlocked);
+  }
+
+  /**
    * Set the all cookies blocked flag for this document.
    */
   void SetHasAllCookiesBlocked(bool aHasAllCookiesBlocked,
-                               const nsAString& aOriginBlocked) {
+                               const nsACString& aOriginBlocked) {
     RecordContentBlockingLog(aOriginBlocked,
                              nsIWebProgressListener::STATE_COOKIES_BLOCKED_ALL,
                              aHasAllCookiesBlocked);
@@ -1039,7 +1108,7 @@ class Document : public nsINode,
    * Set the tracking cookies blocked flag for this document.
    */
   void SetHasTrackingCookiesBlocked(bool aHasTrackingCookiesBlocked,
-                                    const nsAString& aOriginBlocked) {
+                                    const nsACString& aOriginBlocked) {
     RecordContentBlockingLog(
         aOriginBlocked, nsIWebProgressListener::STATE_COOKIES_BLOCKED_TRACKER,
         aHasTrackingCookiesBlocked);
@@ -1049,7 +1118,7 @@ class Document : public nsINode,
    * Set the third-party cookies blocked flag for this document.
    */
   void SetHasForeignCookiesBlocked(bool aHasForeignCookiesBlocked,
-                                   const nsAString& aOriginBlocked) {
+                                   const nsACString& aOriginBlocked) {
     RecordContentBlockingLog(
         aOriginBlocked, nsIWebProgressListener::STATE_COOKIES_BLOCKED_FOREIGN,
         aHasForeignCookiesBlocked);
@@ -1059,7 +1128,7 @@ class Document : public nsINode,
    * Set the cookies blocked by site permission flag for this document.
    */
   void SetHasCookiesBlockedByPermission(bool aHasCookiesBlockedByPermission,
-                                        const nsAString& aOriginBlocked) {
+                                        const nsACString& aOriginBlocked) {
     RecordContentBlockingLog(
         aOriginBlocked,
         nsIWebProgressListener::STATE_COOKIES_BLOCKED_BY_PERMISSION,
@@ -1070,7 +1139,7 @@ class Document : public nsINode,
    * Set the cookies loaded flag for this document.
    */
   void SetHasCookiesLoaded(bool aHasCookiesLoaded,
-                           const nsAString& aOriginLoaded) {
+                           const nsACString& aOriginLoaded) {
     RecordContentBlockingLog(aOriginLoaded,
                              nsIWebProgressListener::STATE_COOKIES_LOADED,
                              aHasCookiesLoaded);
@@ -1096,10 +1165,48 @@ class Document : public nsINode,
    * Set the tracking content loaded flag for this document.
    */
   void SetHasTrackingContentLoaded(bool aHasTrackingContentLoaded,
-                                   const nsAString& aOriginBlocked) {
+                                   const nsACString& aOriginBlocked) {
     RecordContentBlockingLog(
         aOriginBlocked, nsIWebProgressListener::STATE_LOADED_TRACKING_CONTENT,
         aHasTrackingContentLoaded);
+  }
+
+  /**
+   * Get fingerprinting content loaded flag for this document.
+   */
+  bool GetHasFingerprintingContentLoaded() {
+    return mContentBlockingLog.HasBlockedAnyOfType(
+        nsIWebProgressListener::STATE_LOADED_FINGERPRINTING_CONTENT);
+  }
+
+  /**
+   * Set the fingerprinting content loaded flag for this document.
+   */
+  void SetHasFingerprintingContentLoaded(bool aHasFingerprintingContentLoaded,
+                                         const nsACString& aOriginBlocked) {
+    RecordContentBlockingLog(
+        aOriginBlocked,
+        nsIWebProgressListener::STATE_LOADED_FINGERPRINTING_CONTENT,
+        aHasFingerprintingContentLoaded);
+  }
+
+  /**
+   * Get cryptomining content loaded flag for this document.
+   */
+  bool GetHasCryptominingContentLoaded() {
+    return mContentBlockingLog.HasBlockedAnyOfType(
+        nsIWebProgressListener::STATE_LOADED_CRYPTOMINING_CONTENT);
+  }
+
+  /**
+   * Set the cryptomining content loaded flag for this document.
+   */
+  void SetHasCryptominingContentLoaded(bool aHasCryptominingContentLoaded,
+                                       const nsACString& aOriginBlocked) {
+    RecordContentBlockingLog(
+        aOriginBlocked,
+        nsIWebProgressListener::STATE_LOADED_CRYPTOMINING_CONTENT,
+        aHasCryptominingContentLoaded);
   }
 
   /**
@@ -1263,6 +1370,8 @@ class Document : public nsINode,
   void UpdateViewportOverflowType(nscoord aScrolledWidth,
                                   nscoord aScrollportWidth);
 
+  void UpdateForScrollAnchorAdjustment(nscoord aLength);
+
   /**
    * True iff this doc will ignore manual character encoding overrides.
    */
@@ -1349,33 +1458,33 @@ class Document : public nsINode,
   mozilla::Maybe<mozilla::dom::ClientState> GetClientState() const;
   mozilla::Maybe<mozilla::dom::ServiceWorkerDescriptor> GetController() const;
 
-  // Returns the size of the mBlockedTrackingNodes array.
+  // Returns the size of the mBlockedNodesByClassifier array.
   //
-  // This array contains nodes that have been blocked to prevent
-  // user tracking. They most likely have had their nsIChannel
-  // canceled by the URL classifier (Safebrowsing).
+  // This array contains nodes that have been blocked to prevent user tracking,
+  // fingerprinting, cryptomining, etc. They most likely have had their
+  // nsIChannel canceled by the URL classifier (Safebrowsing).
   //
-  // A script can subsequently use GetBlockedTrackingNodes()
+  // A script can subsequently use GetBlockedNodesByClassifier()
   // to get a list of references to these nodes.
   //
   // Note:
-  // This expresses how many tracking nodes have been blocked for this
-  // document since its beginning, not how many of them are still around
-  // in the DOM tree. Weak references to blocked nodes are added in the
-  // mBlockedTrackingNodesArray but they are not removed when those nodes
-  // are removed from the tree or even garbage collected.
-  long BlockedTrackingNodeCount() const {
-    return mBlockedTrackingNodes.Length();
+  // This expresses how many tracking nodes have been blocked for this document
+  // since its beginning, not how many of them are still around in the DOM tree.
+  // Weak references to blocked nodes are added in the mBlockedNodesByClassifier
+  // array but they are not removed when those nodes are removed from the tree
+  // or even garbage collected.
+  long BlockedNodeByClassifierCount() const {
+    return mBlockedNodesByClassifier.Length();
   }
 
   //
-  // Returns strong references to mBlockedTrackingNodes. (Document.h)
+  // Returns strong references to mBlockedNodesByClassifier. (Document.h)
   //
   // This array contains nodes that have been blocked to prevent
   // user tracking. They most likely have had their nsIChannel
   // canceled by the URL classifier (Safebrowsing).
   //
-  already_AddRefed<nsSimpleContentList> BlockedTrackingNodes() const;
+  already_AddRefed<nsSimpleContentList> BlockedNodesByClassifier() const;
 
   // Helper method that returns true if the document has storage-access sandbox
   // flag.
@@ -1820,8 +1929,8 @@ class Document : public nsINode,
    */
   static bool HandlePendingFullscreenRequests(Document* aDocument);
 
-  void RequestPointerLock(Element* aElement, mozilla::dom::CallerType);
-  bool SetPointerLock(Element* aElement, int aCursorStyle);
+  void RequestPointerLock(Element* aElement, CallerType);
+  bool SetPointerLock(Element* aElement, StyleCursorKind);
 
   static void UnlockPointer(Document* aDoc = nullptr);
 
@@ -1879,6 +1988,11 @@ class Document : public nsINode,
   };
   void SetReadyStateInternal(ReadyState rs);
   ReadyState GetReadyStateEnum() { return mReadyState; }
+
+  void SetAncestorLoading(bool aAncestorIsLoading);
+  void NotifyLoading(const bool& aCurrentParentIsLoading,
+                     bool aNewParentIsLoading, const ReadyState& aCurrentState,
+                     ReadyState aNewState);
 
   // notify that a content node changed state.  This must happen under
   // a scriptblocker but NOT within a begin/end update.
@@ -3096,7 +3210,9 @@ class Document : public nsINode,
 
 #ifdef MOZILLA_INTERNAL_API
   bool Hidden() const { return mVisibilityState != VisibilityState::Visible; }
-  mozilla::dom::VisibilityState VisibilityState() const { return mVisibilityState; }
+  mozilla::dom::VisibilityState VisibilityState() const {
+    return mVisibilityState;
+  }
 #endif
   void GetSelectedStyleSheetSet(nsAString& aSheetSet);
   void SetSelectedStyleSheetSet(const nsAString& aSheetSet);
@@ -3220,10 +3336,10 @@ class Document : public nsINode,
 
   /*
    * Given a node, get a weak reference to it and append that reference to
-   * mBlockedTrackingNodes. Can be used later on to look up a node in it.
+   * mBlockedNodesByClassifier. Can be used later on to look up a node in it.
    * (e.g., by the UI)
    */
-  void AddBlockedTrackingNode(nsINode* node) {
+  void AddBlockedNodeByClassifier(nsINode* node) {
     if (!node) {
       return;
     }
@@ -3231,11 +3347,11 @@ class Document : public nsINode,
     nsWeakPtr weakNode = do_GetWeakReference(node);
 
     if (weakNode) {
-      mBlockedTrackingNodes.AppendElement(weakNode);
+      mBlockedNodesByClassifier.AppendElement(weakNode);
     }
   }
 
-  gfxUserFontSet* GetUserFontSet(bool aFlushUserFontSet = true);
+  gfxUserFontSet* GetUserFontSet();
   void FlushUserFontSet();
   void MarkUserFontSetDirty();
   mozilla::dom::FontFaceSet* GetFonts() { return mFontFaceSet; }
@@ -3287,6 +3403,10 @@ class Document : public nsINode,
   bool UserHasInteracted() { return mUserHasInteracted; }
   void ResetUserInteractionTimer();
 
+  // This method would return current autoplay policy, it would be "allowed"
+  // , "allowed-muted" or "disallowed".
+  mozilla::dom::DocumentAutoplayPolicy AutoplayPolicy() const;
+
   // This should be called when this document receives events which are likely
   // to be user interaction with the document, rather than the byproduct of
   // interaction with the browser (i.e. a keypress to scroll the view port,
@@ -3295,9 +3415,14 @@ class Document : public nsINode,
   // content documents in this tab.
   void NotifyUserGestureActivation();
 
+  // This function is used for mochitest only.
+  void ClearUserGestureActivation();
+
   // Return true if NotifyUserGestureActivation() has been called on any
   // document in the document tree.
   bool HasBeenUserGestureActivated();
+
+  BrowsingContext* GetBrowsingContext() const;
 
   // This document is a WebExtension page, it might be a background page, a
   // popup, a visible tab, a visible iframe ...e.t.c.
@@ -3391,13 +3516,12 @@ class Document : public nsINode,
    */
   void LocalizationLinkRemoved(Element* aLinkElement);
 
- protected:
   /**
-   * This method should be collect as soon as the
+   * This method should be called as soon as the
    * parsing of the document is completed.
    *
-   * In HTML this happens when readyState becomes
-   * `interactive`.
+   * In HTML/XHTML this happens when we finish parsing
+   * the document element.
    * In XUL it happens at `DoneWalking`, during
    * `MozBeforeInitialXULLayout`.
    *
@@ -3406,6 +3530,18 @@ class Document : public nsINode,
    */
   void TriggerInitialDocumentTranslation();
 
+  /**
+   * This method is called when the initial translation
+   * of the document is completed.
+   *
+   * It unblocks the layout.
+   *
+   * This method is virtual so that XULDocument can
+   * override it.
+   */
+  virtual void InitialDocumentTranslationCompleted();
+
+ protected:
   RefPtr<mozilla::dom::DocumentL10n> mDocumentL10n;
 
  private:
@@ -3426,7 +3562,39 @@ class Document : public nsINode,
  public:
   bool IsThirdPartyForFlashClassifier();
 
-  bool IsScopedStyleEnabled();
+ private:
+  void DoCacheAllKnownLangPrefs();
+  void RecomputeLanguageFromCharset();
+
+ public:
+  void ResetLangPrefs() {
+    mLangGroupFontPrefs.Reset();
+    mFontGroupCacheDirty = true;
+  }
+
+  already_AddRefed<nsAtom> GetContentLanguageAsAtomForStyle() const;
+  already_AddRefed<nsAtom> GetLanguageForStyle() const;
+
+  /**
+   * Fetch the user's font preferences for the given aLanguage's
+   * language group.
+   */
+  const LangGroupFontPrefs* GetFontPrefsForLang(
+      nsAtom* aLanguage, bool* aNeedsToCache = nullptr) const;
+
+  void ForceCacheLang(nsAtom* aLanguage) {
+    if (!mLanguagesUsed.EnsureInserted(aLanguage)) {
+      return;
+    }
+    GetFontPrefsForLang(aLanguage);
+  }
+
+  void CacheAllKnownLangPrefs() {
+    if (!mFontGroupCacheDirty) {
+      return;
+    }
+    DoCacheAllKnownLangPrefs();
+  }
 
   nsINode* GetServoRestyleRoot() const { return mServoRestyleRoot; }
 
@@ -3497,6 +3665,8 @@ class Document : public nsINode,
   // Sets flags for media autoplay telemetry.
   void SetDocTreeHadAudibleMedia();
   void SetDocTreeHadPlayRevoked();
+
+  mozilla::dom::XPathEvaluator* XPathEvaluator();
 
  protected:
   void DoUpdateSVGUseElementShadowTrees();
@@ -3578,7 +3748,7 @@ class Document : public nsINode,
                                        bool aUpdateCSSLoader);
 
  private:
-  void RecordContentBlockingLog(const nsAString& aOrigin, uint32_t aType,
+  void RecordContentBlockingLog(const nsACString& aOrigin, uint32_t aType,
                                 bool aBlocked) {
     mContentBlockingLog.RecordLog(aOrigin, aType, aBlocked);
   }
@@ -3627,8 +3797,6 @@ class Document : public nsINode,
 
   nsCString GetContentTypeInternal() const { return mContentType; }
 
-  mozilla::dom::XPathEvaluator* XPathEvaluator();
-
   // Update our frame request callback scheduling state, if needed.  This will
   // schedule or unschedule them, if necessary, and update
   // mFrameRequestCallbacksScheduled.  aOldShell should only be passed when
@@ -3663,6 +3831,9 @@ class Document : public nsINode,
   nsCOMPtr<nsIURI> mChromeXHRDocURI;
   nsCOMPtr<nsIURI> mDocumentBaseURI;
   nsCOMPtr<nsIURI> mChromeXHRDocBaseURI;
+
+  // The base domain of the document for third-party checks.
+  nsCString mBaseDomain;
 
   // A lazily-constructed URL data for style system to resolve URL value.
   RefPtr<mozilla::URLExtraData> mCachedURLData;
@@ -3772,6 +3943,8 @@ class Document : public nsINode,
 
   // True if BIDI is enabled.
   bool mBidiEnabled : 1;
+  // True if mLangGroupFontPrefs is not initialized or dirty in some other way.
+  bool mFontGroupCacheDirty : 1;
   // True if a MathML element has ever been owned by this document.
   bool mMathMLEnabled : 1;
 
@@ -3907,9 +4080,6 @@ class Document : public nsINode,
   // Is the current mFontFaceSet valid?
   bool mFontFaceSetDirty : 1;
 
-  // Has GetUserFontSet() been called?
-  bool mGetUserFontSetCalled : 1;
-
   // True if we have fired the DOMContentLoaded event, or don't plan to fire one
   // (e.g. we're not being parsed at all).
   bool mDidFireDOMContentLoaded : 1;
@@ -4037,6 +4207,9 @@ class Document : public nsINode,
   // Our readyState
   ReadyState mReadyState;
 
+  // Ancestor's loading state
+  bool mAncestorIsLoading;
+
 #ifdef MOZILLA_INTERNAL_API
   // Our visibility state
   mozilla::dom::VisibilityState mVisibilityState;
@@ -4158,12 +4331,17 @@ class Document : public nsINode,
   // Count of live static clones of this document.
   uint32_t mStaticCloneCount;
 
+  // If the document is currently printing (or in print preview) this will point
+  // to the current static clone of this document. This is weak since the clone
+  // also has a reference to this document.
+  WeakPtr<Document> mLatestStaticClone;
+
   // Array of nodes that have been blocked to prevent user tracking.
   // They most likely have had their nsIChannel canceled by the URL
   // classifier. (Safebrowsing)
   //
   // Weak nsINode pointers are used to allow nodes to disappear.
-  nsTArray<nsWeakPtr> mBlockedTrackingNodes;
+  nsTArray<nsWeakPtr> mBlockedNodesByClassifier;
 
   // Weak reference to mScriptGlobalObject QI:d to nsPIDOMWindow,
   // updated on every set of mScriptGlobalObject.
@@ -4217,13 +4395,6 @@ class Document : public nsINode,
   // user-interaction using a timer. This boolean value is set to true when this
   // timer is scheduled.
   bool mHasUserInteractionTimerScheduled;
-
-  // Whether the user has interacted with the document via a restricted
-  // set of gestures which are likely to be interaction with the document,
-  // and not events that are fired as a byproduct of the user interacting
-  // with the browser (events for like scrolling the page, keyboard short
-  // cuts, etc).
-  bool mUserGestureActivated;
 
   mozilla::TimeStamp mPageUnloadingEventTimeStamp;
 
@@ -4310,6 +4481,9 @@ class Document : public nsINode,
   nsWeakPtr mAutoFocusElement;
 
   nsCString mScrollToRef;
+
+  nscoord mScrollAnchorAdjustmentLength;
+  int32_t mScrollAnchorAdjustmentCount;
 
   // Weak reference to the scope object (aka the script global object)
   // that, unlike mScriptGlobalObject, is never unset once set. This
@@ -4405,6 +4579,18 @@ class Document : public nsINode,
   // resolution.
   nsTHashtable<nsPtrHashKey<SVGElement>> mLazySVGPresElements;
 
+  // Most documents will only use one (or very few) language groups. Rather
+  // than have the overhead of a hash lookup, we simply look along what will
+  // typically be a very short (usually of length 1) linked list. There are 31
+  // language groups, so in the worst case scenario we'll need to traverse 31
+  // link items.
+  LangGroupFontPrefs mLangGroupFontPrefs;
+
+  nsTHashtable<nsRefPtrHashKey<nsAtom>> mLanguagesUsed;
+
+  // TODO(emilio): Is this hot enough to warrant to be cached?
+  RefPtr<nsAtom> mLanguageFromCharset;
+
   // Restyle root for servo's style system.
   //
   // We store this as an nsINode, rather than as an Element, so that we can
@@ -4437,9 +4623,13 @@ class Document : public nsINode,
   // Pres shell resolution saved before entering fullscreen mode.
   float mSavedResolution;
 
+  bool mPendingInitialTranslation;
+
  public:
   // Needs to be public because the bindings code pokes at it.
   js::ExpandoAndGeneration mExpandoAndGeneration;
+
+  bool HasPendingInitialTranslation() { return mPendingInitialTranslation; }
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(Document, NS_IDOCUMENT_IID)
@@ -4569,22 +4759,11 @@ inline mozilla::dom::Document* nsINode::GetOwnerDocument() const {
 
 inline nsINode* nsINode::OwnerDocAsNode() const { return OwnerDoc(); }
 
-// ShouldUseXBLScope is defined here as a template so that we can get the faster
-// version of IsInAnonymousSubtree if we're statically known to be an
-// nsIContent.  we could try defining ShouldUseXBLScope separately on nsINode
-// and nsIContent, but then we couldn't put its nsINode implementation here
-// (because this header does not include nsIContent) and we can't put it in
-// nsIContent.h, because the definition of nsIContent::IsInAnonymousSubtree is
-// in nsIContentInlines.h.  And then we get include hell from people trying to
-// call nsINode::GetParentObject but not including nsIContentInlines.h and with
-// no really good way to include it.
-template <typename T>
-inline bool ShouldUseXBLScope(const T* aNode) {
-  return aNode->IsInAnonymousSubtree();
+inline bool ShouldUseNACScope(const nsINode* aNode) {
+  return aNode->IsInNativeAnonymousSubtree();
 }
 
-template <typename T>
-inline bool ShouldUseUAWidgetScope(const T* aNode) {
+inline bool ShouldUseUAWidgetScope(const nsINode* aNode) {
   return aNode->IsInUAWidget();
 }
 
@@ -4592,8 +4771,8 @@ inline mozilla::dom::ParentObject nsINode::GetParentObject() const {
   mozilla::dom::ParentObject p(OwnerDoc());
   // Note that mReflectionScope is a no-op for chrome, and other places
   // where we don't check this value.
-  if (ShouldUseXBLScope(this)) {
-    p.mReflectionScope = mozilla::dom::ReflectionScope::XBL;
+  if (ShouldUseNACScope(this)) {
+    p.mReflectionScope = mozilla::dom::ReflectionScope::NAC;
   } else if (ShouldUseUAWidgetScope(this)) {
     p.mReflectionScope = mozilla::dom::ReflectionScope::UAWidget;
   }

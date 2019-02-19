@@ -13,6 +13,7 @@
 #include "mozilla/Preferences.h"
 #include "nsIChannel.h"
 #include "nsIURI.h"
+#include "nsProxyRelease.h"
 
 namespace mozilla {
 namespace net {
@@ -84,7 +85,14 @@ TrackingDummyChannel::TrackingDummyChannel(nsIURI* aURI, nsIURI* aTopWindowURI,
   SetLoadInfo(aLoadInfo);
 }
 
-TrackingDummyChannel::~TrackingDummyChannel() = default;
+TrackingDummyChannel::~TrackingDummyChannel() {
+  NS_ReleaseOnMainThreadSystemGroup("TrackingDummyChannel::mLoadInfo",
+                                    mLoadInfo.forget());
+  NS_ReleaseOnMainThreadSystemGroup("TrackingDummyChannel::mURI",
+                                    mURI.forget());
+  NS_ReleaseOnMainThreadSystemGroup("TrackingDummyChannel::mTopWindowURI",
+                                    mTopWindowURI.forget());
+}
 
 bool TrackingDummyChannel::IsTrackingResource() const {
   return mIsTrackingResource;
@@ -174,32 +182,22 @@ TrackingDummyChannel::SetContentLength(int64_t aContentLength) {
 }
 
 NS_IMETHODIMP
-TrackingDummyChannel::Open(nsIInputStream** aRetval) {
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TrackingDummyChannel::Open2(nsIInputStream** aStream) {
+TrackingDummyChannel::Open(nsIInputStream** aStream) {
   nsCOMPtr<nsIStreamListener> listener;
   nsresult rv =
       nsContentSecurityManager::doContentSecurityCheck(this, listener);
   NS_ENSURE_SUCCESS(rv, rv);
-  return Open(aStream);
-}
 
-NS_IMETHODIMP
-TrackingDummyChannel::AsyncOpen(nsIStreamListener* aListener,
-                                nsISupports* aContext) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
-TrackingDummyChannel::AsyncOpen2(nsIStreamListener* aListener) {
+TrackingDummyChannel::AsyncOpen(nsIStreamListener* aListener) {
   nsCOMPtr<nsIStreamListener> listener = aListener;
   nsresult rv =
       nsContentSecurityManager::doContentSecurityCheck(this, listener);
   NS_ENSURE_SUCCESS(rv, rv);
-  return AsyncOpen(listener, nullptr);
+  return AsyncOpen(listener);
 }
 
 NS_IMETHODIMP
@@ -543,6 +541,11 @@ TrackingDummyChannel::SetTopWindowURIIfUnknown(nsIURI* aTopWindowURI) {
 }
 
 NS_IMETHODIMP
+TrackingDummyChannel::SetTopWindowPrincipal(nsIPrincipal* aTopWindowPrincipal) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
 TrackingDummyChannel::GetProxyURI(nsIURI** aProxyURI) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -602,7 +605,7 @@ TrackingDummyChannel::SetNavigationStartTimeStamp(
 }
 
 NS_IMETHODIMP
-TrackingDummyChannel::CancelForTrackingProtection() {
+TrackingDummyChannel::CancelByChannelClassifier(nsresult aErrorCode) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 

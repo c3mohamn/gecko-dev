@@ -107,7 +107,7 @@ constexpr const char *sSelectUp2String = "cmd_selectUp2";
 constexpr const char *sSelectDown2String = "cmd_selectDown2";
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 // a base class for selection-related commands, for code sharing
@@ -173,7 +173,7 @@ class nsPhysicalSelectCommand : public nsSelectionCommandsBase {
 };
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 NS_IMPL_ISUPPORTS(nsSelectionCommandsBase, nsIControllerCommand)
@@ -229,7 +229,7 @@ nsresult nsSelectionCommandsBase::GetSelectionControllerFromWindow(
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 // Helpers for nsSelectMoveScrollCommand and nsPhysicalSelectMoveScrollCommand
@@ -384,7 +384,7 @@ nsresult nsPhysicalSelectMoveScrollCommand::DoCommand(
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 static const struct SelectCommand {
@@ -422,7 +422,7 @@ nsresult nsSelectCommand::DoCommand(const char *aCommandName,
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 static const struct PhysicalSelectCommand {
@@ -456,7 +456,7 @@ nsresult nsPhysicalSelectCommand::DoCommand(const char *aCommandName,
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 class nsClipboardCommand final : public nsIControllerCommand {
@@ -477,13 +477,15 @@ nsresult nsClipboardCommand::IsCommandEnabled(const char *aCommandName,
 
   if (strcmp(aCommandName, "cmd_copy") &&
       strcmp(aCommandName, "cmd_copyAndCollapseToEnd") &&
-      strcmp(aCommandName, "cmd_cut") && strcmp(aCommandName, "cmd_paste"))
+      strcmp(aCommandName, "cmd_cut") && strcmp(aCommandName, "cmd_paste")) {
     return NS_OK;
+  }
 
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryInterface(aContext);
   NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
+  RefPtr<Document> doc = window->GetExtantDoc();
+  NS_ENSURE_TRUE(doc, NS_ERROR_FAILURE);
 
-  nsCOMPtr<Document> doc = window->GetExtantDoc();
   if (doc->IsHTMLOrXHTML()) {
     // In HTML and XHTML documents, we always want the cut, copy and paste
     // commands to be enabled.
@@ -550,7 +552,7 @@ nsresult nsClipboardCommand::DoCommandParams(const char *aCommandName,
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 class nsSelectionCommand : public nsIControllerCommand {
@@ -645,7 +647,7 @@ nsresult nsSelectionCommand::GetContentViewerEditFromContext(
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 #define NS_DECL_CLIPBOARD_COMMAND(_cmd)                                       \
@@ -678,7 +680,7 @@ nsresult nsClipboardCopyLinkCommand::DoClipboardCommand(
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 nsresult nsClipboardImageCommands::IsClipboardCommandEnabled(
@@ -703,7 +705,7 @@ nsresult nsClipboardImageCommands::DoClipboardCommand(
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 nsresult nsClipboardSelectAllNoneCommands::IsClipboardCommandEnabled(
@@ -722,7 +724,7 @@ nsresult nsClipboardSelectAllNoneCommands::DoClipboardCommand(
 }
 
 #if 0
-#pragma mark -
+#  pragma mark -
 #endif
 
 nsresult nsClipboardGetContentsCommand::IsClipboardCommandEnabled(

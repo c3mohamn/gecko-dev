@@ -23,7 +23,7 @@
 #include "XREShellData.h"
 
 #if defined(MOZ_WIDGET_ANDROID)
-#include <jni.h>
+#  include <jni.h>
 #endif
 
 /**
@@ -118,8 +118,8 @@
  * directories where native manifests used by the WebExtensions
  * native messaging and managed storage features are found.
  */
-#define XRE_SYS_NATIVE_MANIFESTS "XRESysNativeManifests"
-#define XRE_USER_NATIVE_MANIFESTS "XREUserNativeManifests"
+#  define XRE_SYS_NATIVE_MANIFESTS "XRESysNativeManifests"
+#  define XRE_USER_NATIVE_MANIFESTS "XREUserNativeManifests"
 #endif
 
 /**
@@ -374,8 +374,7 @@ enum GeckoProcessType {
 };
 
 static const char* const kGeckoProcessTypeString[] = {
-#define GECKO_PROCESS_TYPE(enum_name, string_name, xre_name) \
-  string_name,
+#define GECKO_PROCESS_TYPE(enum_name, string_name, xre_name) string_name,
 #include "mozilla/GeckoProcessTypes.h"
 #undef GECKO_PROCESS_TYPE
 };
@@ -444,11 +443,21 @@ XRE_API(bool, XRE_IsE10sParentProcess, ())
 #include "mozilla/GeckoProcessTypes.h"
 #undef GECKO_PROCESS_TYPE
 
+XRE_API(bool, XRE_IsSocketProcess, ())
+
 /**
  * Returns true if the appshell should run its own native event loop. Returns
  * false if we should rely solely on the Gecko event loop.
  */
 XRE_API(bool, XRE_UseNativeEventProcessing, ())
+
+#if defined(XP_WIN)
+/**
+ * @returns true if win32k calls are allowed in this process type, false if
+ *          win32k is (or should be) disabled.
+ */
+XRE_API(bool, XRE_Win32kCallsAllowed, ())
+#endif
 
 typedef void (*MainFunction)(void* aData);
 
@@ -489,7 +498,7 @@ XRE_API(int, XRE_XPCShellMain,
         (int argc, char** argv, char** envp, const XREShellData* aShellData))
 
 #ifdef LIBFUZZER
-#include "FuzzerRegistry.h"
+#  include "FuzzerRegistry.h"
 
 XRE_API(void, XRE_LibFuzzerSetDriver, (LibFuzzerDriver))
 

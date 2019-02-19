@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const VALUE_HDR_NAME = "X-HTTP-VALUE-HEADER";
 const VARY_HDR_NAME = "X-HTTP-VARY-HEADER";
@@ -58,7 +58,7 @@ Test.prototype = {
     if (this._cacheHdr)
         channel.setRequestHeader(CACHECTRL_HDR_NAME, this._cacheHdr, false);
 
-    channel.asyncOpen2(this);
+    channel.asyncOpen(this);
   }
 };
 

@@ -1,10 +1,41 @@
 ---
-layout: geckoview
+layout: default
+title: API Changelog
+description: GeckoView API Changelog.
+nav_exclude: true
+exclude: true
 ---
 
 <h1> GeckoView API Changelog. </h1>
 
+## v67
+- Added GeckoRuntimeSetting for automatically adjusting font size settings
+  depending on the OS-level font size setting.
+
+- Added GeckoRuntimeSettings for setting a font size scaling factor, and for
+  enabling font inflation for non-mobile-friendly pages.
+
+- Updated video autoplay API to reflect changes in Gecko. Instead of being a per-video
+  permission in the PermissionDelegate, it is a runtime setting that either allows or
+  blocks autoplay videos.
+
+- Change `ContentBlocking.AT_ALL` and `ContentBlocking.SB_ALL` values to mirror
+  the actual constants they encompass.
+
+- Added nested `ContentBlocking` runtime settings.
+
+- Added `RuntimeSettings` base class to support nested settings.
+
+- Added `baseUri` to [`ContentDelegate.ContextElement`][65.21] and changed
+  `linkUri` to absolute form.
+
+- Added `scrollBy()` and `scrollTo()` to `PanZoomController`.
+
 ## v66
+- Removed redundant field `GeckoSession.ProgressDelegate.SecurityInformation.trackingMode`.
+  Use `GeckoSession.TrackingProtectionDelegate.onTrackerBlocked` for
+  notification of blocked elements during page load.
+
 - Added [`@NonNull`][66.1] or [`@Nullable`][66.2] to all APIs.
 
 [66.1]: https://developer.android.com/reference/android/support/annotation/NonNull
@@ -17,7 +48,11 @@ layout: geckoview
 - Added GeckoRuntimeSetting for enabling desktop viewport. Desktop viewport is
   no longer set by `USER_AGENT_MODE_DESKTOP` and must be set separately.
 
+- Added `@UiThread` to `GeckoSession.releaseSession` and `GeckoSession.setSession`
+
 ## v65
+- Added experimental ad-blocking category to `GeckoSession.TrackingProtectionDelegate`.
+
 - Moved [`CompositorController`][65.1], [`DynamicToolbarAnimator`][65.2],
   [`OverscrollEdgeEffect`][65.3], [`PanZoomController`][65.4] from
   `org.mozilla.gecko.gfx` to [`org.mozilla.geckoview`][65.5]
@@ -105,4 +140,4 @@ layout: geckoview
 [65.24]: ../CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: ../GeckoResult.html
 
-[api-version]: 5957a5943b39ae0e56b7e892bd824a16bb71e811
+[api-version]: f318744a2a5bd8058977a5709a3e9a3b73d5202b

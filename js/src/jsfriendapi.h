@@ -26,17 +26,17 @@
 #include "js/Utility.h"
 
 #ifndef JS_STACK_GROWTH_DIRECTION
-#ifdef __hppa
-#define JS_STACK_GROWTH_DIRECTION (1)
-#else
-#define JS_STACK_GROWTH_DIRECTION (-1)
-#endif
+#  ifdef __hppa
+#    define JS_STACK_GROWTH_DIRECTION (1)
+#  else
+#    define JS_STACK_GROWTH_DIRECTION (-1)
+#  endif
 #endif
 
 #if JS_STACK_GROWTH_DIRECTION > 0
-#define JS_CHECK_STACK_SIZE(limit, sp) (MOZ_LIKELY((uintptr_t)(sp) < (limit)))
+#  define JS_CHECK_STACK_SIZE(limit, sp) (MOZ_LIKELY((uintptr_t)(sp) < (limit)))
 #else
-#define JS_CHECK_STACK_SIZE(limit, sp) (MOZ_LIKELY((uintptr_t)(sp) > (limit)))
+#  define JS_CHECK_STACK_SIZE(limit, sp) (MOZ_LIKELY((uintptr_t)(sp) > (limit)))
 #endif
 
 struct JSErrorFormatString;
@@ -170,6 +170,7 @@ enum {
   JS_TELEMETRY_GC_MARK_RATE,
   JS_TELEMETRY_PRIVILEGED_PARSER_COMPILE_LAZY_AFTER_MS,
   JS_TELEMETRY_WEB_PARSER_COMPILE_LAZY_AFTER_MS,
+  JS_TELEMETRY_DEPRECATED_STRING_GENERICS,
   JS_TELEMETRY_END
 };
 
@@ -192,9 +193,6 @@ typedef void (*JSSetUseCounterCallback)(JSObject* obj, JSUseCounter counter);
 
 extern JS_FRIEND_API void JS_SetSetUseCounterCallback(
     JSContext* cx, JSSetUseCounterCallback callback);
-
-extern JS_FRIEND_API JSPrincipals* JS_DeprecatedGetCompartmentPrincipals(
-    JS::Compartment* compartment);
 
 extern JS_FRIEND_API JSPrincipals* JS_GetScriptPrincipals(JSScript* script);
 
@@ -553,6 +551,10 @@ extern JS_FRIEND_API JS::Realm* GetAnyRealmInZone(JS::Zone* zone);
 // collected by the GC.
 extern JS_FRIEND_API JSObject* GetFirstGlobalInCompartment(
     JS::Compartment* comp);
+
+// Returns true if the compartment contains a global object and this global is
+// not being collected.
+extern JS_FRIEND_API bool CompartmentHasLiveGlobal(JS::Compartment* comp);
 
 /*
  * Shadow declarations of JS internal structures, for access by inline access
@@ -1963,40 +1965,6 @@ extern JS_FRIEND_API bool JS_IsDetachedArrayBufferObject(JSObject* obj);
 JS_FRIEND_API JSObject* JS_NewDataView(JSContext* cx, JS::HandleObject buffer,
                                        uint32_t byteOffset, int32_t byteLength);
 
-/**
- * Return the byte offset of a data view into its array buffer. |obj| must be a
- * DataView.
- *
- * |obj| must have passed a JS_IsDataViewObject test, or somehow be known that
- * it would pass such a test: it is a data view or a wrapper of a data view,
- * and the unwrapping will succeed.
- */
-JS_FRIEND_API uint32_t JS_GetDataViewByteOffset(JSObject* obj);
-
-/**
- * Return the byte length of a data view.
- *
- * |obj| must have passed a JS_IsDataViewObject test, or somehow be known that
- * it would pass such a test: it is a data view or a wrapper of a data view,
- * and the unwrapping will succeed. If cx is nullptr, then DEBUG builds may be
- * unable to assert when unwrapping should be disallowed.
- */
-JS_FRIEND_API uint32_t JS_GetDataViewByteLength(JSObject* obj);
-
-/**
- * Return a pointer to the beginning of the data referenced by a DataView.
- *
- * |obj| must have passed a JS_IsDataViewObject test, or somehow be known that
- * it would pass such a test: it is a data view or a wrapper of a data view,
- * and the unwrapping will succeed. If cx is nullptr, then DEBUG builds may be
- * unable to assert when unwrapping should be disallowed.
- *
- * |*isSharedMemory| will be set to true if the DataView maps a
- * SharedArrayBuffer, otherwise to false.
- */
-JS_FRIEND_API void* JS_GetDataViewData(JSObject* obj, bool* isSharedMemory,
-                                       const JS::AutoRequireNoGC&);
-
 namespace js {
 namespace jit {
 
@@ -2625,7 +2593,7 @@ extern JS_FRIEND_API JSObject* GetJSMEnvironmentOfScriptedCaller(JSContext* cx);
 extern JS_FRIEND_API bool IsJSMEnvironment(JSObject* obj);
 
 // Matches the condition in js/src/jit/ProcessExecutableMemory.cpp
-#if defined(XP_WIN) && defined(HAVE_64BIT_BUILD) && defined(_M_X64)
+#if defined(XP_WIN) && defined(HAVE_64BIT_BUILD)
 // Parameters use void* types to avoid #including windows.h. The return value of
 // this function is returned from the exception handler.
 typedef long (*JitExceptionHandler)(void* exceptionRecord,  // PEXECTION_RECORD

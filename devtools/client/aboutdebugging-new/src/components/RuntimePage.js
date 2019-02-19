@@ -12,39 +12,47 @@ const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const FluentReact = require("devtools/client/shared/vendor/fluent-react");
 const Localized = createFactory(FluentReact.Localized);
 
+const CompatibilityWarning = createFactory(require("./CompatibilityWarning"));
 const ConnectionPromptSetting = createFactory(require("./ConnectionPromptSetting"));
 const DebugTargetPane = createFactory(require("./debugtarget/DebugTargetPane"));
+const ExtensionAction = createFactory(require("./debugtarget/ExtensionAction"));
+const ExtensionDebugSetting = createFactory(require("./ExtensionDebugSetting"));
 const ExtensionDetail = createFactory(require("./debugtarget/ExtensionDetail"));
 const InspectAction = createFactory(require("./debugtarget/InspectAction"));
+const Message = createFactory(require("./shared/Message"));
+const ProfilerDialog = createFactory(require("./ProfilerDialog"));
 const RuntimeInfo = createFactory(require("./RuntimeInfo"));
 const ServiceWorkerAction = createFactory(require("./debugtarget/ServiceWorkerAction"));
+const ServiceWorkersWarning = createFactory(require("./ServiceWorkersWarning"));
 const TabDetail = createFactory(require("./debugtarget/TabDetail"));
 const TemporaryExtensionAction = createFactory(require("./debugtarget/TemporaryExtensionAction"));
+const TemporaryExtensionDetail = createFactory(require("./debugtarget/TemporaryExtensionDetail"));
 const TemporaryExtensionInstaller =
   createFactory(require("./debugtarget/TemporaryExtensionInstaller"));
 const WorkerDetail = createFactory(require("./debugtarget/WorkerDetail"));
 
 const Actions = require("../actions/index");
-const { DEBUG_TARGET_PANE, PAGE_TYPES, RUNTIMES } = require("../constants");
+const { DEBUG_TARGET_PANE, MESSAGE_LEVEL, PAGE_TYPES, RUNTIMES } = require("../constants");
+const Types = require("../types/index");
 
+const { getCurrentRuntimeDetails } = require("../modules/runtimes-state-helper");
 const {
-  getCurrentConnectionPromptSetting,
-  getCurrentRuntimeInfo,
-} = require("../modules/runtimes-state-helper");
-const { isSupportedDebugTargetPane } = require("../modules/debug-target-support");
+  isExtensionDebugSettingNeeded,
+  isSupportedDebugTargetPane,
+} = require("../modules/debug-target-support");
 
 class RuntimePage extends PureComponent {
   static get propTypes() {
     return {
-      collapsibilities: PropTypes.object.isRequired,
-      connectionPromptEnabled: PropTypes.bool.isRequired,
+      collapsibilities: Types.collapsibilities.isRequired,
       dispatch: PropTypes.func.isRequired,
       installedExtensions: PropTypes.arrayOf(PropTypes.object).isRequired,
       otherWorkers: PropTypes.arrayOf(PropTypes.object).isRequired,
+      runtimeDetails: Types.runtimeDetails,
       runtimeId: PropTypes.string.isRequired,
-      runtimeInfo: PropTypes.object,
       serviceWorkers: PropTypes.arrayOf(PropTypes.object).isRequired,
       sharedWorkers: PropTypes.arrayOf(PropTypes.object).isRequired,
+      showProfilerDialog: PropTypes.bool.isRequired,
       tabs: PropTypes.arrayOf(PropTypes.object).isRequired,
       temporaryExtensions: PropTypes.arrayOf(PropTypes.object).isRequired,
       temporaryInstallError: PropTypes.string,
@@ -58,22 +66,28 @@ class RuntimePage extends PureComponent {
     dispatch(Actions.selectPage(PAGE_TYPES.RUNTIME, runtimeId));
   }
 
-  renderConnectionPromptSetting() {
-    const { connectionPromptEnabled, dispatch } = this.props;
+  onProfilerButtonClick() {
+    this.props.dispatch(Actions.showProfilerDialog());
+  }
 
-    return dom.div(
-      {
-        className: "connection-prompt-setting",
-      },
-      ConnectionPromptSetting({ connectionPromptEnabled, dispatch }),
-    );
+  renderConnectionPromptSetting() {
+    const { dispatch, runtimeDetails, runtimeId } = this.props;
+    const { connectionPromptEnabled } = runtimeDetails;
+    // do not show the connection prompt setting in 'This Firefox'
+    return runtimeId !== RUNTIMES.THIS_FIREFOX
+             ? ConnectionPromptSetting({
+               className: "runtime-actions__end",
+               connectionPromptEnabled,
+               dispatch,
+             })
+             : null;
   }
 
   renderDebugTargetPane(name, targets, actionComponent,
                         detailComponent, paneKey, localizationId) {
-    const { collapsibilities, dispatch, runtimeInfo } = this.props;
+    const { collapsibilities, dispatch, runtimeDetails } = this.props;
 
-    if (!isSupportedDebugTargetPane(runtimeInfo.type, paneKey)) {
+    if (!isSupportedDebugTargetPane(runtimeDetails.info.type, paneKey)) {
       return null;
     }
 
@@ -94,51 +108,132 @@ class RuntimePage extends PureComponent {
     );
   }
 
+  renderExtensionDebugSetting() {
+    const { dispatch, runtimeDetails } = this.props;
+    const { extensionDebugEnabled, info } = runtimeDetails;
+    return isExtensionDebugSettingNeeded(info.type)
+             ? ExtensionDebugSetting({
+                 className: "runtime-actions__start",
+                 dispatch,
+                 extensionDebugEnabled,
+             })
+             : null;
+  }
+
+  renderProfileButton() {
+    const { runtimeId } = this.props;
+
+    return runtimeId !== RUNTIMES.THIS_FIREFOX
+         ? Localized(
+           {
+             id: "about-debugging-runtime-profile-button",
+           },
+           dom.button(
+             {
+               className: "default-button runtime-actions__start " +
+                          "js-profile-runtime-button",
+               onClick: () => this.onProfilerButtonClick(),
+             },
+             "Profile Runtime"
+           ),
+         )
+         : null;
+  }
+
+  renderRuntimeActions() {
+    return dom.div(
+      {
+        className: "runtime-actions",
+      },
+      this.renderConnectionPromptSetting(),
+      this.renderProfileButton(),
+      this.renderExtensionDebugSetting(),
+      this.renderTemporaryExtensionInstaller(),
+    );
+  }
+
+  renderTemporaryExtensionInstaller() {
+    const { dispatch, runtimeDetails, temporaryInstallError } = this.props;
+    const { type } = runtimeDetails.info;
+    return isSupportedDebugTargetPane(type, DEBUG_TARGET_PANE.TEMPORARY_EXTENSION)
+             ? TemporaryExtensionInstaller({
+                 className: "runtime-actions__end",
+                 dispatch,
+                 temporaryInstallError,
+             })
+             : null;
+  }
+
+  renderTemporaryExtensionInstallError() {
+    const { runtimeDetails, temporaryInstallError } = this.props;
+    const { type } = runtimeDetails.info;
+
+    if (!temporaryInstallError ||
+        !isSupportedDebugTargetPane(type, DEBUG_TARGET_PANE.TEMPORARY_EXTENSION)) {
+      return null;
+    }
+
+    return Message(
+      {
+        level: MESSAGE_LEVEL.ERROR,
+      },
+      dom.div(
+        {},
+        Localized(
+          {
+            id: "about-debugging-tmp-extension-install-error",
+          },
+          dom.span({}, "There was an error during the temporary add-on installation")
+        ),
+        dom.div(
+          {
+            className: "technical-text",
+          },
+          temporaryInstallError
+        )
+      )
+    );
+  }
+
   render() {
     const {
       dispatch,
       installedExtensions,
       otherWorkers,
-      runtimeId,
-      runtimeInfo,
+      runtimeDetails,
       serviceWorkers,
       sharedWorkers,
+      showProfilerDialog,
       tabs,
       temporaryExtensions,
-      temporaryInstallError,
     } = this.props;
 
-    if (!runtimeInfo) {
+    if (!runtimeDetails) {
       // runtimeInfo can be null when the selectPage action navigates from a runtime A
       // to a runtime B (between unwatchRuntime and watchRuntime).
       return null;
     }
 
-    // do not show the connection prompt setting in 'This Firefox'
-    const shallShowPromptSetting = runtimeId !== RUNTIMES.THIS_FIREFOX;
+    const { compatibilityReport } = runtimeDetails;
 
     return dom.article(
       {
         className: "page js-runtime-page",
       },
-      RuntimeInfo(runtimeInfo),
-      shallShowPromptSetting
-        ? this.renderConnectionPromptSetting()
-        : null,
-      isSupportedDebugTargetPane(runtimeInfo.type, DEBUG_TARGET_PANE.TEMPORARY_EXTENSION)
-        ? TemporaryExtensionInstaller({
-            dispatch,
-            temporaryInstallError,
-        }) : null,
+      RuntimeInfo(runtimeDetails.info),
+      this.renderRuntimeActions(),
+      runtimeDetails.serviceWorkersAvailable ? null : ServiceWorkersWarning(),
+      CompatibilityWarning({ compatibilityReport }),
+      this.renderTemporaryExtensionInstallError(),
       this.renderDebugTargetPane("Temporary Extensions",
                                  temporaryExtensions,
                                  TemporaryExtensionAction,
-                                 ExtensionDetail,
+                                 TemporaryExtensionDetail,
                                  DEBUG_TARGET_PANE.TEMPORARY_EXTENSION,
                                  "about-debugging-runtime-temporary-extensions"),
       this.renderDebugTargetPane("Extensions",
                                  installedExtensions,
-                                 InspectAction,
+                                 ExtensionAction,
                                  ExtensionDetail,
                                  DEBUG_TARGET_PANE.INSTALLED_EXTENSION,
                                  "about-debugging-runtime-extensions"),
@@ -166,19 +261,21 @@ class RuntimePage extends PureComponent {
                                  WorkerDetail,
                                  DEBUG_TARGET_PANE.OTHER_WORKER,
                                  "about-debugging-runtime-other-workers"),
+
+      showProfilerDialog ? ProfilerDialog({ dispatch, runtimeDetails }) : null,
     );
   }
 }
 
 const mapStateToProps = state => {
   return {
-    connectionPromptEnabled: getCurrentConnectionPromptSetting(state.runtimes),
     collapsibilities: state.ui.debugTargetCollapsibilities,
     installedExtensions: state.debugTargets.installedExtensions,
     otherWorkers: state.debugTargets.otherWorkers,
-    runtimeInfo: getCurrentRuntimeInfo(state.runtimes),
+    runtimeDetails: getCurrentRuntimeDetails(state.runtimes),
     serviceWorkers: state.debugTargets.serviceWorkers,
     sharedWorkers: state.debugTargets.sharedWorkers,
+    showProfilerDialog: state.ui.showProfilerDialog,
     tabs: state.debugTargets.tabs,
     temporaryExtensions: state.debugTargets.temporaryExtensions,
     temporaryInstallError: state.ui.temporaryInstallError,

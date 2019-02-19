@@ -15,8 +15,8 @@
 
 var EXPORTED_SYMBOLS = ["ExtensionCommon"];
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 XPCOMUtils.defineLazyGlobalGetters(this, ["fetch"]);
 
@@ -33,7 +33,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "styleSheetService",
                                    "@mozilla.org/content/style-sheet-service;1",
                                    "nsIStyleSheetService");
 
-ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
+const {ExtensionUtils} = ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
 
 var {
   DefaultMap,
@@ -383,7 +383,7 @@ class InnerWindowReference {
     // If invalidate() is called while the inner window is in the bfcache, then
     // we are unable to remove the event listener, and handleEvent will be
     // called once more if the page is revived from the bfcache.
-    if (this.contentWindow) {
+    if (this.contentWindow && !Cu.isDeadWrapper(this.contentWindow)) {
       this.contentWindow.removeEventListener("pagehide", this, {mozSystemGroup: true});
       this.contentWindow.removeEventListener("pageshow", this, {mozSystemGroup: true});
     }
@@ -1321,7 +1321,7 @@ class SchemaAPIManager extends EventEmitter {
 
   initModuleData(moduleData) {
     if (!this._modulesJSONLoaded) {
-      let data = moduleData.deserialize({});
+      let data = moduleData.deserialize({}, true);
 
       this.modules = data.modules;
       this.modulePaths = data.modulePaths;

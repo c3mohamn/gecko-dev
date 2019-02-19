@@ -11,9 +11,8 @@
  *
  */
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "URL", function() {
   return "http://localhost:" + httpServer.identity.primaryPort + "/content";
@@ -62,7 +61,7 @@ function run_test()
   var cc = chan.QueryInterface(Ci.nsICacheInfoChannel);
   cc.preferAlternativeDataType(altContentType, "");
 
-  chan.asyncOpen2(new ChannelListener(readServerContent, null));
+  chan.asyncOpen(new ChannelListener(readServerContent, null));
   do_test_pending();
 }
 
@@ -91,7 +90,7 @@ function openAltChannel()
   var cc = chan.QueryInterface(Ci.nsICacheInfoChannel);
   cc.preferAlternativeDataType(altContentType, "");
 
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 var listener = {

@@ -124,6 +124,7 @@ enum BailoutKind {
   Bailout_NonObjectInput,
   Bailout_NonStringInput,
   Bailout_NonSymbolInput,
+  Bailout_NonBigIntInput,
 
   // Atomic operations require shared memory, bail out if the typed array
   // maps unshared memory.
@@ -223,6 +224,8 @@ inline const char* BailoutKindString(BailoutKind kind) {
       return "Bailout_NonStringInput";
     case Bailout_NonSymbolInput:
       return "Bailout_NonSymbolInput";
+    case Bailout_NonBigIntInput:
+      return "Bailout_NonBigIntInput";
     case Bailout_NonSharedTypedArrayInput:
       return "Bailout_NonSharedTypedArrayInput";
     case Bailout_Debugger:
@@ -441,6 +444,7 @@ enum class MIRType : uint8_t {
   // Types above have trivial conversion to a number.
   String,
   Symbol,
+  BigInt,
   // Types above are primitive (including undefined and null).
   Object,
   MagicOptimizedArguments,    // JS_OPTIMIZED_ARGUMENTS magic value.
@@ -456,6 +460,7 @@ enum class MIRType : uint8_t {
   Slots,        // A slots vector
   Elements,     // An elements vector
   Pointer,      // An opaque pointer that receives no special treatment
+  RefOrNull,    // Wasm Ref/AnyRef/NullRef: a raw JSObject* or a raw (void*)0
   Shape,        // A Shape pointer.
   ObjectGroup,  // An ObjectGroup pointer.
   Last = ObjectGroup,
@@ -488,6 +493,8 @@ static inline MIRType MIRTypeFromValueType(JSValueType type) {
       return MIRType::String;
     case JSVAL_TYPE_SYMBOL:
       return MIRType::Symbol;
+    case JSVAL_TYPE_BIGINT:
+      return MIRType::BigInt;
     case JSVAL_TYPE_BOOLEAN:
       return MIRType::Boolean;
     case JSVAL_TYPE_NULL:
@@ -518,6 +525,8 @@ static inline JSValueType ValueTypeFromMIRType(MIRType type) {
       return JSVAL_TYPE_STRING;
     case MIRType::Symbol:
       return JSVAL_TYPE_SYMBOL;
+    case MIRType::BigInt:
+      return JSVAL_TYPE_BIGINT;
     case MIRType::MagicOptimizedArguments:
     case MIRType::MagicOptimizedOut:
     case MIRType::MagicHole:
@@ -545,6 +554,7 @@ static inline size_t MIRTypeToSize(MIRType type) {
     case MIRType::Double:
       return 8;
     case MIRType::Pointer:
+    case MIRType::RefOrNull:
       return sizeof(uintptr_t);
     default:
       MOZ_CRASH("MIRTypeToSize - unhandled case");
@@ -571,6 +581,8 @@ static inline const char* StringFromMIRType(MIRType type) {
       return "String";
     case MIRType::Symbol:
       return "Symbol";
+    case MIRType::BigInt:
+      return "BigInt";
     case MIRType::Object:
       return "Object";
     case MIRType::MagicOptimizedArguments:
@@ -597,6 +609,8 @@ static inline const char* StringFromMIRType(MIRType type) {
       return "Elements";
     case MIRType::Pointer:
       return "Pointer";
+    case MIRType::RefOrNull:
+      return "RefOrNull";
     case MIRType::Shape:
       return "Shape";
     case MIRType::ObjectGroup:
@@ -628,6 +642,10 @@ static inline bool IsIntType(MIRType type) {
 static inline bool IsNumberType(MIRType type) {
   return type == MIRType::Int32 || type == MIRType::Double ||
          type == MIRType::Float32 || type == MIRType::Int64;
+}
+
+static inline bool IsNumericType(MIRType type) {
+  return IsNumberType(type) || type == MIRType::BigInt;
 }
 
 static inline bool IsTypeRepresentableAsDouble(MIRType type) {
@@ -706,11 +724,11 @@ static inline const char* PropertyNameToExtraName(PropertyName* name) {
 #ifdef DEBUG
 
 // Track the pipeline of opcodes which has produced a snapshot.
-#define TRACK_SNAPSHOTS 1
+#  define TRACK_SNAPSHOTS 1
 
 // Make sure registers are not modified between an instruction and
 // its OsiPoint.
-#define CHECK_OSIPOINT_REGISTERS 1
+#  define CHECK_OSIPOINT_REGISTERS 1
 
 #endif  // DEBUG
 
@@ -747,6 +765,9 @@ enum ABIFunctionType {
 
   // int f(double)
   Args_Int_Double = Args_General0 | (ArgType_Double << ArgType_Shift),
+
+  // int f(float32)
+  Args_Int_Float32 = Args_General0 | (ArgType_Float32 << ArgType_Shift),
 
   // float f(float)
   Args_Float32_Float32 =

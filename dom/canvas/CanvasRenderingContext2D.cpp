@@ -127,9 +127,9 @@
              // free() method in SkTypes.h
 #include "SkiaGLGlue.h"
 #ifdef USE_SKIA
-#include "SurfaceTypes.h"
-#include "GLBlitHelper.h"
-#include "ScopedGLHelpers.h"
+#  include "SurfaceTypes.h"
+#  include "GLBlitHelper.h"
+#  include "ScopedGLHelpers.h"
 #endif
 
 using mozilla::gl::GLContext;
@@ -137,7 +137,7 @@ using mozilla::gl::GLContextProvider;
 using mozilla::gl::SkiaGLGlue;
 
 #ifdef XP_WIN
-#include "gfxWindowsPlatform.h"
+#  include "gfxWindowsPlatform.h"
 #endif
 
 // windows.h (included by chromium code) defines this, in its infinite wisdom
@@ -2591,7 +2591,7 @@ bool CanvasRenderingContext2D::ParseFilter(
     return false;
   }
 
-  nsString usedFont;  // unused
+  nsAutoString usedFont;  // unused
 
   RefPtr<ComputedStyle> parentStyle = GetFontStyleForServo(
       mCanvasElement, GetFont(), presShell, usedFont, aError);
@@ -2599,16 +2599,13 @@ bool CanvasRenderingContext2D::ParseFilter(
     return false;
   }
 
-  RefPtr<ComputedStyle> computedValues =
+  RefPtr<ComputedStyle> style =
       ResolveFilterStyleForServo(aString, parentStyle, presShell, aError);
-  if (!computedValues) {
+  if (!style) {
     return false;
   }
 
-  const nsStyleEffects* effects =
-      computedValues->ComputedData()->GetStyleEffects();
-  // XXX: This mFilters is a one shot object, we probably could avoid copying.
-  aFilterChain = effects->mFilters;
+  aFilterChain = style->StyleEffects()->mFilters;
   return true;
 }
 
@@ -2648,6 +2645,7 @@ class CanvasUserSpaceMetrics : public UserSpaceMetricsWithSize {
     params.language = mFontLanguage;
     params.explicitLanguage = mExplicitLanguage;
     params.textPerf = mPresContext->GetTextPerfMetrics();
+    params.featureValueLookup = mPresContext->GetFontFeatureValuesLookup();
     RefPtr<nsFontMetrics> fontMetrics = dc->GetMetricsFor(mFont, params);
     return NSAppUnitsToFloatPixels(fontMetrics->XHeight(),
                                    AppUnitsPerCSSPixel());
@@ -3486,6 +3484,8 @@ bool CanvasRenderingContext2D::SetFontInternal(const nsAString& aFont,
   resizedFont.size =
       (fontStyle->mSize * c->AppUnitsPerDevPixel()) / AppUnitsPerCSSPixel();
 
+  c->Document()->FlushUserFontSet();
+
   nsFontMetrics::Params params;
   params.language = fontStyle->mLanguage;
   params.explicitLanguage = fontStyle->mExplicitLanguage;
@@ -4026,6 +4026,7 @@ nsresult CanvasRenderingContext2D::DrawOrMeasureText(
   nsPresContext* presContext = presShell->GetPresContext();
 
   // ensure user font set is up to date
+  presContext->Document()->FlushUserFontSet();
   currentFontStyle->SetUserFontSet(presContext->GetUserFontSet());
 
   if (currentFontStyle->GetStyle()->size == 0.0F) {

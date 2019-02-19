@@ -11,9 +11,7 @@
 #include "jsfriendapi.h"
 
 #include "builtin/AtomicsObject.h"
-#ifdef ENABLE_BIGINT
 #include "builtin/BigInt.h"
-#endif
 #include "builtin/DataViewObject.h"
 #include "builtin/Eval.h"
 #include "builtin/MapObject.h"
@@ -104,10 +102,8 @@ TypedObjectModuleObject& js::GlobalObject::getTypedObjectModule() const {
     case JSProto_CountQueuingStrategy:
       return !cx->realm()->creationOptions().getStreamsEnabled();
 
-#ifdef ENABLE_BIGINT
     case JSProto_BigInt:
       return !cx->realm()->creationOptions().getBigIntEnabled();
-#endif
 
     // Return true if the given constructor has been disabled at run-time.
     case JSProto_Atomics:
@@ -124,6 +120,11 @@ TypedObjectModuleObject& js::GlobalObject::getTypedObjectModule() const {
                                                   IfClassIsDisabled mode) {
   MOZ_ASSERT(key != JSProto_Null);
   MOZ_ASSERT(!global->isStandardClassResolved(key));
+  MOZ_ASSERT(cx->compartment() == global->compartment());
+
+  // |global| must be same-compartment but make sure we're in its realm: the
+  // code below relies on this.
+  AutoRealm ar(cx, global);
 
   if (global->zone()->createdForHelperThread()) {
     return resolveOffThreadConstructor(cx, global, key);
@@ -348,8 +349,7 @@ TypedObjectModuleObject& js::GlobalObject::getTypedObjectModule() const {
 }
 
 const Class GlobalObject::OffThreadPlaceholderObject::class_ = {
-    "off-thread-prototype-placeholder",
-    JSCLASS_IS_ANONYMOUS | JSCLASS_HAS_RESERVED_SLOTS(1)};
+    "off-thread-prototype-placeholder", JSCLASS_HAS_RESERVED_SLOTS(1)};
 
 /* static */ GlobalObject::OffThreadPlaceholderObject*
 GlobalObject::OffThreadPlaceholderObject::New(JSContext* cx, unsigned slot) {

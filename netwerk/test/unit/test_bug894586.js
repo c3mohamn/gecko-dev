@@ -3,9 +3,7 @@
  * should not fail for channels of unknown size
  */
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var contentSecManager = Cc["@mozilla.org/contentsecuritymanager;1"]
                           .getService(Ci.nsIContentSecurityManager);
@@ -72,21 +70,15 @@ ProtocolHandler.prototype = {
     throw Components.Exception("Setting content length", NS_ERROR_NOT_IMPLEMENTED);
   },
   open: function() {
+    // throws an error if security checks fail
+    contentSecManager.performSecurityCheck(this, null);
+
     var file = do_get_file("test_bug894586.js", false);
     Assert.ok(file.exists());
     var url = Services.io.newFileURI(file);
-    return NetUtil.newChannel({uri: url, loadUsingSystemPrincipal: true}).open2();
-  },
-  open2: function() {
-    // throws an error if security checks fail
-    contentSecManager.performSecurityCheck(this, null);
-    return this.open();
+    return NetUtil.newChannel({uri: url, loadUsingSystemPrincipal: true}).open();
   },
   asyncOpen: function(aListener, aContext) {
-    throw Components.Exception("Not implemented",
-                               Cr.NS_ERROR_NOT_IMPLEMENTED);
-  },
-  asyncOpen2: function(aListener, aContext) {
     throw Components.Exception("Not implemented",
                                Cr.NS_ERROR_NOT_IMPLEMENTED);
   },

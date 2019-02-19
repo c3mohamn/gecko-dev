@@ -12,10 +12,12 @@
 #include "nsIInterfaceRequestor.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsILoadGroup.h"
+#include "nsINestedURI.h"
 #include "nsINetUtil.h"
 #include "nsIRequest.h"
 #include "nsILoadInfo.h"
 #include "nsIIOService.h"
+#include "nsIURI.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/Services.h"
 #include "mozilla/Unused.h"
@@ -24,7 +26,6 @@
 #include "nsServiceManagerUtils.h"
 #include "nsString.h"
 
-class nsIURI;
 class nsIPrincipal;
 class nsIAsyncStreamCopier;
 class nsIAuthPrompt;
@@ -38,7 +39,6 @@ class nsIFileStream;
 class nsIInputStream;
 class nsIInputStreamPump;
 class nsIInterfaceRequestor;
-class nsINestedURI;
 class nsIOutputStream;
 class nsIParentChannel;
 class nsIPersistentProperties;
@@ -718,6 +718,41 @@ nsresult NS_URIChainHasFlags(nsIURI *uri, uint32_t flags, bool *result);
 already_AddRefed<nsIURI> NS_GetInnermostURI(nsIURI *aURI);
 
 /**
+ * Helper function for getting the host name of the innermost URI for a given
+ * URI.  The return value could be the host name of the URI passed in if it's
+ * not a nested URI.
+ */
+inline nsresult NS_GetInnermostURIHost(nsIURI *aURI, nsACString &aHost) {
+  aHost.Truncate();
+
+  // This block is optimized in order to avoid the overhead of calling
+  // NS_GetInnermostURI() which incurs a lot of overhead in terms of
+  // AddRef/Release calls.
+  nsCOMPtr<nsINestedURI> nestedURI = do_QueryInterface(aURI);
+  if (nestedURI) {
+    // We have a nested URI!
+    nsCOMPtr<nsIURI> uri;
+    nsresult rv = nestedURI->GetInnermostURI(getter_AddRefs(uri));
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+
+    rv = uri->GetAsciiHost(aHost);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+  } else {
+    // We have a non-nested URI!
+    nsresult rv = aURI->GetAsciiHost(aHost);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+  }
+
+  return NS_OK;
+}
+
+/**
  * Get the "final" URI for a channel.  This is either channel's load info
  * resultPrincipalURI, if set, or GetOriginalURI.  In most cases (but not all)
  * load info resultPrincipalURI, if set, corresponds to URI of the channel if
@@ -757,19 +792,19 @@ nsresult NS_LinkRedirectChannels(uint32_t channelId,
 
 /**
  * Helper function which checks whether the channel can be
- * openend using Open2() or has to fall back to opening
+ * openend using Open() or has to fall back to opening
  * the channel using Open().
  */
-nsresult NS_MaybeOpenChannelUsingOpen2(nsIChannel *aChannel,
-                                       nsIInputStream **aStream);
+nsresult NS_MaybeOpenChannelUsingOpen(nsIChannel *aChannel,
+                                      nsIInputStream **aStream);
 
 /**
  * Helper function which checks whether the channel can be
- * openend using AsyncOpen2() or has to fall back to opening
+ * openend using AsyncOpen() or has to fall back to opening
  * the channel using AsyncOpen().
  */
-nsresult NS_MaybeOpenChannelUsingAsyncOpen2(nsIChannel *aChannel,
-                                            nsIStreamListener *aListener);
+nsresult NS_MaybeOpenChannelUsingAsyncOpen(nsIChannel *aChannel,
+                                           nsIStreamListener *aListener);
 
 /** Given the first (disposition) token from a Content-Disposition header,
  * tell whether it indicates the content is inline or attachment
@@ -898,6 +933,23 @@ bool InScriptableRange(uint64_t val);
 nsresult GetParameterHTTP(const nsACString &aHeaderVal, const char *aParamName,
                           nsAString &aResult);
 
+/**
+ * Convenience functions for verifying nsIURI schemes. These functions simply
+ * wrap aURI->SchemeIs(), but specify the protocol as part of the function name.
+ */
+
+bool SchemeIsHTTP(nsIURI *aURI);
+bool SchemeIsHTTPS(nsIURI *aURI);
+bool SchemeIsJavascript(nsIURI *aURI);
+bool SchemeIsChrome(nsIURI *aURI);
+bool SchemeIsAbout(nsIURI *aURI);
+bool SchemeIsBlob(nsIURI *aURI);
+bool SchemeIsFile(nsIURI *aURI);
+bool SchemeIsData(nsIURI *aURI);
+bool SchemeIsWYCIWYG(nsIURI *aURI);
+bool SchemeIsViewSource(nsIURI *aURI);
+bool SchemeIsResource(nsIURI *aURI);
+bool SchemeIsFTP(nsIURI *aURI);
 }  // namespace net
 }  // namespace mozilla
 

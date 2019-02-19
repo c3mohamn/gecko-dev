@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const PATH = "/file.meh";
 var httpserver = new HttpServer();
@@ -87,7 +87,7 @@ function runNext() {
     response.setHeader("Content-Type", tests[testRan].contentType, false);
     response.bodyOutputStream.write(data, data.length);
   });
-  channel.asyncOpen2(listener);
+  channel.asyncOpen(listener);
 }
 
 function run_test() {

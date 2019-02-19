@@ -100,8 +100,8 @@ vbox {
 /********** label **********/
 
 label.text-link, label[onclick] {
-  -moz-binding: url("chrome://global/content/bindings/text.xml#text-link");
   -moz-user-focus: normal;
+  -moz-binding: none;
 }
 
 label[control], label.radio-label, label.checkbox-label, label.toolbarbutton-multiline-text {
@@ -174,7 +174,7 @@ iframe {
 
 /*********** popup notification ************/
 popupnotification {
-  -moz-binding: url("chrome://global/content/bindings/notification.xml#popup-notification");
+  -moz-box-orient: vertical;
 }
 
 .popup-notification-menubutton:not([label]) {
@@ -289,10 +289,6 @@ menuitem.menuitem-iconic {
 menuitem[type="checkbox"],
 menuitem[type="radio"] {
   -moz-binding: url("chrome://global/content/bindings/menu.xml#menuitem-iconic");
-}
-
-menucaption {
-  -moz-binding: url("chrome://global/content/bindings/menu.xml#menucaption");
 }
 
 .menu-text {
@@ -444,18 +440,8 @@ tree > treechildren {
   -moz-box-flex: 1;
 }
 
-treerows {
-  -moz-binding: url("chrome://global/content/bindings/tree.xml#treerows");
-}
-
-treecolpicker {
-  -moz-binding: url("chrome://global/content/bindings/tree.xml#columnpicker");
-}
-
 tree {
   -moz-box-orient: vertical;
-  min-width: 0px;
-  min-height: 0px;
   width: 10px;
   height: 10px;
 }
@@ -590,8 +576,9 @@ panel[type="autocomplete-richlistbox"] {
 }
 
 .autocomplete-richlistitem {
-  -moz-binding: url("chrome://global/content/bindings/autocomplete.xml#autocomplete-richlistitem");
+  -moz-binding: none;
   -moz-box-orient: vertical;
+  -moz-box-align: center;
   overflow: -moz-hidden-unscrollable;
 }
 
@@ -611,12 +598,7 @@ panel[type="autocomplete-richlistbox"] {
 
 /********** menulist **********/
 
-menulist {
-  -moz-binding: url("chrome://global/content/bindings/menulist.xml#menulist");
-}
-
 menulist[popuponly="true"] {
-  -moz-binding: url("chrome://global/content/bindings/menulist.xml#menulist-popuponly");
   -moz-appearance: none !important;
   margin: 0 !important;
   height: 0 !important;

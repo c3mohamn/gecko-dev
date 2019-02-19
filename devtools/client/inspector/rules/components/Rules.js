@@ -14,15 +14,40 @@ const Types = require("../types");
 class Rules extends PureComponent {
   static get propTypes() {
     return {
+      onOpenSourceLink: PropTypes.func.isRequired,
+      onToggleDeclaration: PropTypes.func.isRequired,
+      onToggleSelectorHighlighter: PropTypes.func.isRequired,
       rules: PropTypes.arrayOf(PropTypes.shape(Types.rule)).isRequired,
+      showDeclarationNameEditor: PropTypes.func.isRequired,
+      showDeclarationValueEditor: PropTypes.func.isRequired,
+      showNewDeclarationEditor: PropTypes.func.isRequired,
+      showSelectorEditor: PropTypes.func.isRequired,
     };
   }
 
   render() {
-    return this.props.rules.map(rule => {
+    const {
+      onOpenSourceLink,
+      onToggleDeclaration,
+      onToggleSelectorHighlighter,
+      rules,
+      showDeclarationNameEditor,
+      showDeclarationValueEditor,
+      showNewDeclarationEditor,
+      showSelectorEditor,
+    } = this.props;
+
+    return rules.map(rule => {
       return Rule({
         key: rule.id,
+        onOpenSourceLink,
+        onToggleDeclaration,
+        onToggleSelectorHighlighter,
         rule,
+        showDeclarationNameEditor,
+        showDeclarationValueEditor,
+        showNewDeclarationEditor,
+        showSelectorEditor,
       });
     });
   }

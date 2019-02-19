@@ -19,10 +19,6 @@
   color: var(--theme-highlight-blue);
 }
 
-.frames ul .frames-group.expanded .react path {
-  fill: var(--theme-highlight-blue);
-}
-
 .frames ul .frames-group .frames-list li {
   padding-left: 30px;
 }
@@ -34,4 +30,8 @@
 
 .frames ul .frames-group.expanded .badge {
   color: var(--theme-highlight-blue);
+}
+
+.group-description-name {
+  padding-left: 5px;
 }

@@ -35,14 +35,14 @@ using namespace mozilla::dom;
 using namespace mozilla::hal;
 
 #ifdef XP_WIN
-#include <process.h>
-#define getpid _getpid
+#  include <process.h>
+#  define getpid _getpid
 #else
-#include <unistd.h>
+#  include <unistd.h>
 #endif
 
 #ifdef LOG
-#undef LOG
+#  undef LOG
 #endif
 
 // Use LOGP inside a ParticularProcessPriorityManager method; use LOG
@@ -54,36 +54,37 @@ using namespace mozilla::hal;
 // #define ENABLE_LOGGING 1
 
 #if defined(ANDROID) && defined(ENABLE_LOGGING)
-#include <android/log.h>
-#define LOG(fmt, ...)                                                        \
-  __android_log_print(ANDROID_LOG_INFO, "Gecko:ProcessPriorityManager", fmt, \
-                      ##__VA_ARGS__)
-#define LOGP(fmt, ...)                                                         \
-  __android_log_print(ANDROID_LOG_INFO, "Gecko:ProcessPriorityManager",        \
-                      "[%schild-id=%" PRIu64 ", pid=%d] " fmt,                 \
-                      NameWithComma().get(), static_cast<uint64_t>(ChildID()), \
-                      Pid(), ##__VA_ARGS__)
+#  include <android/log.h>
+#  define LOG(fmt, ...)                                                        \
+    __android_log_print(ANDROID_LOG_INFO, "Gecko:ProcessPriorityManager", fmt, \
+                        ##__VA_ARGS__)
+#  define LOGP(fmt, ...)                                                \
+    __android_log_print(                                                \
+        ANDROID_LOG_INFO, "Gecko:ProcessPriorityManager",               \
+        "[%schild-id=%" PRIu64 ", pid=%d] " fmt, NameWithComma().get(), \
+        static_cast<uint64_t>(ChildID()), Pid(), ##__VA_ARGS__)
 
 #elif defined(ENABLE_LOGGING)
-#define LOG(fmt, ...) \
-  printf("ProcessPriorityManager - " fmt "\n", ##__VA_ARGS__)
-#define LOGP(fmt, ...)                                                         \
-  printf("ProcessPriorityManager[%schild-id=%" PRIu64 ", pid=%d] - " fmt "\n", \
-         NameWithComma().get(), static_cast<uint64_t>(ChildID()), Pid(),       \
-         ##__VA_ARGS__)
+#  define LOG(fmt, ...) \
+    printf("ProcessPriorityManager - " fmt "\n", ##__VA_ARGS__)
+#  define LOGP(fmt, ...)                                                   \
+    printf("ProcessPriorityManager[%schild-id=%" PRIu64 ", pid=%d] - " fmt \
+           "\n",                                                           \
+           NameWithComma().get(), static_cast<uint64_t>(ChildID()), Pid(), \
+           ##__VA_ARGS__)
 #else
 static LogModule* GetPPMLog() {
   static LazyLogModule sLog("ProcessPriorityManager");
   return sLog;
 }
-#define LOG(fmt, ...)                   \
-  MOZ_LOG(GetPPMLog(), LogLevel::Debug, \
-          ("ProcessPriorityManager - " fmt, ##__VA_ARGS__))
-#define LOGP(fmt, ...)                                                      \
-  MOZ_LOG(GetPPMLog(), LogLevel::Debug,                                     \
-          ("ProcessPriorityManager[%schild-id=%" PRIu64 ", pid=%d] - " fmt, \
-           NameWithComma().get(), static_cast<uint64_t>(ChildID()), Pid(),  \
-           ##__VA_ARGS__))
+#  define LOG(fmt, ...)                   \
+    MOZ_LOG(GetPPMLog(), LogLevel::Debug, \
+            ("ProcessPriorityManager - " fmt, ##__VA_ARGS__))
+#  define LOGP(fmt, ...)                                                      \
+    MOZ_LOG(GetPPMLog(), LogLevel::Debug,                                     \
+            ("ProcessPriorityManager[%schild-id=%" PRIu64 ", pid=%d] - " fmt, \
+             NameWithComma().get(), static_cast<uint64_t>(ChildID()), Pid(),  \
+             ##__VA_ARGS__))
 #endif
 
 namespace {
@@ -266,11 +267,15 @@ class ParticularProcessPriorityManager final : public WakeLockObserver,
   void FireTestOnlyObserverNotification(const char* aTopic,
                                         const char* aData = nullptr);
 
+  bool IsHoldingWakeLock(const nsAString& aTopic);
+
   ContentParent* mContentParent;
   uint64_t mChildID;
   ProcessPriority mPriority;
   bool mHoldsCPUWakeLock;
   bool mHoldsHighPriorityWakeLock;
+  bool mHoldsPlayingAudioWakeLock;
+  bool mHoldsPlayingVideoWakeLock;
 
   /**
    * Used to implement NameWithComma().
@@ -491,7 +496,9 @@ ParticularProcessPriorityManager::ParticularProcessPriorityManager(
       mChildID(aContentParent->ChildID()),
       mPriority(PROCESS_PRIORITY_UNKNOWN),
       mHoldsCPUWakeLock(false),
-      mHoldsHighPriorityWakeLock(false) {
+      mHoldsHighPriorityWakeLock(false),
+      mHoldsPlayingAudioWakeLock(false),
+      mHoldsPlayingVideoWakeLock(false) {
   MOZ_ASSERT(XRE_IsParentProcess());
   LOGP("Creating ParticularProcessPriorityManager.");
 }
@@ -516,14 +523,27 @@ void ParticularProcessPriorityManager::Init() {
 
   // This process may already hold the CPU lock; for example, our parent may
   // have acquired it on our behalf.
-  WakeLockInformation info1, info2;
-  GetWakeLockInfo(NS_LITERAL_STRING("cpu"), &info1);
-  mHoldsCPUWakeLock = info1.lockingProcesses().Contains(ChildID());
+  mHoldsCPUWakeLock = IsHoldingWakeLock(NS_LITERAL_STRING("cpu"));
+  mHoldsHighPriorityWakeLock =
+      IsHoldingWakeLock(NS_LITERAL_STRING("high-priority"));
+  mHoldsPlayingAudioWakeLock =
+      IsHoldingWakeLock(NS_LITERAL_STRING("audio-playing"));
+  mHoldsPlayingVideoWakeLock =
+      IsHoldingWakeLock(NS_LITERAL_STRING("video-playing"));
 
-  GetWakeLockInfo(NS_LITERAL_STRING("high-priority"), &info2);
-  mHoldsHighPriorityWakeLock = info2.lockingProcesses().Contains(ChildID());
-  LOGP("Done starting up.  mHoldsCPUWakeLock=%d, mHoldsHighPriorityWakeLock=%d",
-       mHoldsCPUWakeLock, mHoldsHighPriorityWakeLock);
+  LOGP(
+      "Done starting up.  mHoldsCPUWakeLock=%d, "
+      "mHoldsHighPriorityWakeLock=%d, mHoldsPlayingAudioWakeLock=%d, "
+      "mHoldsPlayingVideoWakeLock=%d",
+      mHoldsCPUWakeLock, mHoldsHighPriorityWakeLock, mHoldsPlayingAudioWakeLock,
+      mHoldsPlayingVideoWakeLock);
+}
+
+bool ParticularProcessPriorityManager::IsHoldingWakeLock(
+    const nsAString& aTopic) {
+  WakeLockInformation info;
+  GetWakeLockInfo(aTopic, &info);
+  return info.lockingProcesses().Contains(ChildID());
 }
 
 ParticularProcessPriorityManager::~ParticularProcessPriorityManager() {
@@ -551,6 +571,10 @@ ParticularProcessPriorityManager::~ParticularProcessPriorityManager() {
     dest = &mHoldsCPUWakeLock;
   } else if (aInfo.topic().EqualsLiteral("high-priority")) {
     dest = &mHoldsHighPriorityWakeLock;
+  } else if (aInfo.topic().EqualsLiteral("audio-playing")) {
+    dest = &mHoldsPlayingAudioWakeLock;
+  } else if (aInfo.topic().EqualsLiteral("video-playing")) {
+    dest = &mHoldsPlayingVideoWakeLock;
   }
 
   if (dest) {
@@ -559,8 +583,10 @@ ParticularProcessPriorityManager::~ParticularProcessPriorityManager() {
       *dest = thisProcessLocks;
       LOGP(
           "Got wake lock changed event. "
-          "Now mHoldsCPUWakeLock=%d, mHoldsHighPriorityWakeLock=%d",
-          mHoldsCPUWakeLock, mHoldsHighPriorityWakeLock);
+          "Now mHoldsCPUWakeLock=%d, mHoldsHighPriorityWakeLock=%d, "
+          "mHoldsPlayingAudioWakeLock=%d, mHoldsPlayingVideoWakeLock=%d",
+          mHoldsCPUWakeLock, mHoldsHighPriorityWakeLock,
+          mHoldsPlayingAudioWakeLock, mHoldsPlayingVideoWakeLock);
       ResetPriority();
     }
   }
@@ -723,11 +749,13 @@ ProcessPriority ParticularProcessPriorityManager::CurrentPriority() {
 
 ProcessPriority ParticularProcessPriorityManager::ComputePriority() {
   if (!mActiveTabParents.IsEmpty() ||
-      mContentParent->GetRemoteType().EqualsLiteral(EXTENSION_REMOTE_TYPE)) {
+      mContentParent->GetRemoteType().EqualsLiteral(EXTENSION_REMOTE_TYPE) ||
+      mHoldsPlayingAudioWakeLock) {
     return PROCESS_PRIORITY_FOREGROUND;
   }
 
-  if (mHoldsCPUWakeLock || mHoldsHighPriorityWakeLock) {
+  if (mHoldsCPUWakeLock || mHoldsHighPriorityWakeLock ||
+      mHoldsPlayingVideoWakeLock) {
     return PROCESS_PRIORITY_BACKGROUND_PERCEIVABLE;
   }
 

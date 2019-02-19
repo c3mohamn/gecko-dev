@@ -4,9 +4,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // Services = object with smart getters for common XPCOM services
-ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+var {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
+var {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+var {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 ChromeUtils.defineModuleGetter(this, "PrivateBrowsingUtils",
                                "resource://gre/modules/PrivateBrowsingUtils.jsm");
@@ -511,11 +511,14 @@ function openLinkIn(url, where, params) {
                                          { recordExecution: "*", newFrameloader: true });
     }
 
+    let ReferrerInfo = Components.Constructor("@mozilla.org/referrer-info;1",
+                                              "nsIReferrerInfo",
+                                              "init");
     targetBrowser.loadURI(url, {
       triggeringPrincipal: aTriggeringPrincipal,
+      referrerInfo: new ReferrerInfo(
+        aReferrerPolicy, !aNoReferrer, aReferrerURI),
       flags,
-      referrerURI: aNoReferrer ? null : aReferrerURI,
-      referrerPolicy: aReferrerPolicy,
       postData: aPostData,
       userContextId: aUserContextId,
     });
@@ -903,6 +906,18 @@ function buildHelpMenu() {
   document.getElementById("helpSafeMode")
           .disabled = !Services.policies.isAllowed("safeMode");
 
+  let supportMenu = Services.policies.getSupportMenu();
+  if (supportMenu) {
+    let menuitem = document.getElementById("helpPolicySupport");
+    menuitem.hidden = false;
+    menuitem.setAttribute("label", supportMenu.Title);
+    menuitem.setAttribute("href", supportMenu.URL);
+    if ("AccessKey" in supportMenu) {
+      menuitem.setAttribute("accesskey", supportMenu.AccessKey);
+    }
+    document.getElementById("helpPolicySeparator").hidden = false;
+  }
+
   // Enable/disable the "Report Web Forgery" menu item.
   if (typeof gSafeBrowsing != "undefined") {
     gSafeBrowsing.setReportPhishingMenu();
@@ -936,7 +951,6 @@ function makeURLAbsolute(aBase, aUrl) {
  *        parameters passed to openLinkIn
  */
 function openNewTabWith(aURL, aShiftKey, aParams = {}) {
-
   // As in openNewWindowWith(), we want to pass the charset of the
   // current document over to a new tab.
   if (document.documentElement.getAttribute("windowtype") == "navigator:browser")
@@ -972,6 +986,8 @@ function openHelpLink(aHelpTopic, aCalledFromModal, aWhere) {
 
   openTrustedLinkIn(url, where);
 }
+
+window.addEventListener("dialoghelp", openPrefsHelp);
 
 function openPrefsHelp() {
   // non-instant apply prefwindows are usually modal, so we can't open in the topmost window,

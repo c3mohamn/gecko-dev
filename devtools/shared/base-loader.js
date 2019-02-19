@@ -12,9 +12,9 @@ this.EXPORTED_SYMBOLS = ["Loader", "resolveURI", "Module", "Require", "unload"];
 const { Constructor: CC, manager: Cm } = Components;
 const systemPrincipal = CC("@mozilla.org/systemprincipal;1", "nsIPrincipal")();
 
-const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm", {});
-const { XPCOMUtils } = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm", {});
-const { normalize, dirname } = ChromeUtils.import("resource://gre/modules/osfile/ospath_unix.jsm", {});
+const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const { XPCOMUtils } = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const { normalize, dirname } = ChromeUtils.import("resource://gre/modules/osfile/ospath_unix.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "resProto",
                                    "@mozilla.org/network/protocol;1?name=resource",
@@ -59,7 +59,7 @@ function readURI(uri) {
   const stream = NetUtil.newChannel({
     uri: NetUtil.newURI(uri, "UTF-8"),
     loadUsingSystemPrincipal: true}
-  ).open2();
+  ).open();
   const count = stream.available();
   const data = NetUtil.readInputStreamToString(stream, count, {
     charset: "UTF-8",

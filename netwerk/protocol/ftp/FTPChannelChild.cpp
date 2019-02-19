@@ -21,8 +21,8 @@
 #include "mozilla/ipc/URIUtils.h"
 #include "SerializedLoadContext.h"
 #include "mozilla/ipc/BackgroundUtils.h"
-#include "nsIPrompt.h"
 #include "nsIURIMutator.h"
+#include "nsContentSecurityManager.h"
 
 using mozilla::dom::ContentChild;
 using namespace mozilla::ipc;
@@ -130,8 +130,12 @@ FTPChannelChild::GetUploadStream(nsIInputStream** stream) {
 }
 
 NS_IMETHODIMP
-FTPChannelChild::AsyncOpen(::nsIStreamListener* listener,
-                           nsISupports* aContext) {
+FTPChannelChild::AsyncOpen(nsIStreamListener* aListener) {
+  nsCOMPtr<nsIStreamListener> listener = aListener;
+  nsresult rv =
+      nsContentSecurityManager::doContentSecurityCheck(this, listener);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   LOG(("FTPChannelChild::AsyncOpen [this=%p]\n", this));
 
   NS_ENSURE_TRUE((gNeckoChild), NS_ERROR_FAILURE);
@@ -144,7 +148,6 @@ FTPChannelChild::AsyncOpen(::nsIStreamListener* listener,
 
   // Port checked in parent, but duplicate here so we can return with error
   // immediately, as we've done since before e10s.
-  nsresult rv;
   rv = NS_CheckPortSafety(nsBaseChannel::URI());  // Need to disambiguate,
                                                   // because in the child ipdl,
                                                   // a typedef URI is defined...
@@ -163,7 +166,6 @@ FTPChannelChild::AsyncOpen(::nsIStreamListener* listener,
   }
 
   mListener = listener;
-  mListenerContext = aContext;
 
   // add ourselves to the load group.
   if (mLoadGroup) mLoadGroup->AddRequest(this, nullptr);
@@ -314,12 +316,11 @@ void FTPChannelChild::DoOnStartRequest(const nsresult& aChannelStatus,
   }
 
   AutoEventEnqueuer ensureSerialDispatch(mEventQ);
-  rv = mListener->OnStartRequest(this, mListenerContext);
+  rv = mListener->OnStartRequest(this, nullptr);
   if (NS_FAILED(rv)) Cancel(rv);
 
   if (mDivertingToParent) {
     mListener = nullptr;
-    mListenerContext = nullptr;
     if (mLoadGroup) {
       mLoadGroup->RemoveRequest(this, nullptr, mStatus);
     }
@@ -429,8 +430,7 @@ void FTPChannelChild::DoOnDataAvailable(const nsresult& channelStatus,
   }
 
   AutoEventEnqueuer ensureSerialDispatch(mEventQ);
-  rv = mListener->OnDataAvailable(this, mListenerContext, stringStream, offset,
-                                  count);
+  rv = mListener->OnDataAvailable(this, nullptr, stringStream, offset, count);
   if (NS_FAILED(rv)) Cancel(rv);
   stringStream->Close();
 }
@@ -467,29 +467,6 @@ mozilla::ipc::IPCResult FTPChannelChild::RecvOnStopRequest(
       new FTPStopRequestEvent(this, aChannelStatus, aErrorMsg, aUseUTF8));
   return IPC_OK();
 }
-
-class nsFtpChildAsyncAlert : public Runnable {
- public:
-  nsFtpChildAsyncAlert(nsIPrompt* aPrompter, nsString aResponseMsg)
-      : Runnable("nsFtpChildAsyncAlert"),
-        mPrompter(aPrompter),
-        mResponseMsg(std::move(aResponseMsg)) {}
-
- protected:
-  virtual ~nsFtpChildAsyncAlert() = default;
-
- public:
-  NS_IMETHOD Run() override {
-    if (mPrompter) {
-      mPrompter->Alert(nullptr, mResponseMsg.get());
-    }
-    return NS_OK;
-  }
-
- private:
-  nsCOMPtr<nsIPrompt> mPrompter;
-  nsString mResponseMsg;
-};
 
 class MaybeDivertOnStopFTPEvent
     : public NeckoTargetChannelEvent<FTPChannelChild> {
@@ -537,27 +514,9 @@ void FTPChannelChild::DoOnStopRequest(const nsresult& aChannelStatus,
     // we initiate protocol deletion below.
     mIsPending = false;
     AutoEventEnqueuer ensureSerialDispatch(mEventQ);
-    (void)mListener->OnStopRequest(this, mListenerContext, aChannelStatus);
-
-    if (NS_FAILED(aChannelStatus) && !aErrorMsg.IsEmpty()) {
-      nsCOMPtr<nsIPrompt> prompter;
-      GetCallback(prompter);
-      if (prompter) {
-        nsCOMPtr<nsIRunnable> alertEvent;
-        if (aUseUTF8) {
-          alertEvent = new nsFtpChildAsyncAlert(
-              prompter, NS_ConvertUTF8toUTF16(aErrorMsg));
-        } else {
-          alertEvent = new nsFtpChildAsyncAlert(
-              prompter, NS_ConvertASCIItoUTF16(aErrorMsg));
-        }
-
-        Dispatch(alertEvent.forget());
-      }
-    }
+    (void)mListener->OnStopRequest(this, nullptr, aChannelStatus);
 
     mListener = nullptr;
-    mListenerContext = nullptr;
 
     if (mLoadGroup) mLoadGroup->RemoveRequest(this, nullptr, aChannelStatus);
   }
@@ -595,15 +554,14 @@ void FTPChannelChild::DoFailedAsyncOpen(const nsresult& statusCode) {
   if (mLoadGroup) mLoadGroup->RemoveRequest(this, nullptr, statusCode);
 
   if (mListener) {
-    mListener->OnStartRequest(this, mListenerContext);
+    mListener->OnStartRequest(this, nullptr);
     mIsPending = false;
-    mListener->OnStopRequest(this, mListenerContext, statusCode);
+    mListener->OnStopRequest(this, nullptr, statusCode);
   } else {
     mIsPending = false;
   }
 
   mListener = nullptr;
-  mListenerContext = nullptr;
 
   if (mIPCOpen) Send__delete__(this);
 }
@@ -765,7 +723,6 @@ FTPChannelChild::CompleteRedirectSetup(nsIStreamListener* listener,
   mIsPending = true;
   mWasOpened = true;
   mListener = listener;
-  mListenerContext = aContext;
 
   // add ourselves to the load group.
   if (mLoadGroup) mLoadGroup->AddRequest(this, nullptr);

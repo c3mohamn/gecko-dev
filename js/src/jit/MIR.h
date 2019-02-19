@@ -332,21 +332,21 @@ class AliasSet {
  public:
   enum Flag {
     None_ = 0,
-    ObjectFields = 1 << 0,       // shape, class, slots, length etc.
-    Element = 1 << 1,            // A Value member of obj->elements or
-                                 // a typed object.
-    UnboxedElement = 1 << 2,     // An unboxed scalar or reference member of
-                                 // typed object or unboxed object.
-    DynamicSlot = 1 << 3,        // A Value member of obj->slots.
-    FixedSlot = 1 << 4,          // A Value member of obj->fixedSlots().
-    DOMProperty = 1 << 5,        // A DOM property
-    FrameArgument = 1 << 6,      // An argument kept on the stack frame
-    WasmGlobalVar = 1 << 7,      // An asm.js/wasm private global var
-    WasmHeap = 1 << 8,           // An asm.js/wasm heap load
-    WasmHeapMeta = 1 << 9,       // The asm.js/wasm heap base pointer and
-                                 // bounds check limit, in Tls.
-    TypedArrayLength = 1 << 10,  // A typed array's length
-    WasmGlobalCell = 1 << 11,    // A wasm global cell
+    ObjectFields = 1 << 0,    // shape, class, slots, length etc.
+    Element = 1 << 1,         // A Value member of obj->elements or
+                              // a typed object.
+    UnboxedElement = 1 << 2,  // An unboxed scalar or reference member of
+                              // typed object or unboxed object.
+    DynamicSlot = 1 << 3,     // A Value member of obj->slots.
+    FixedSlot = 1 << 4,       // A Value member of obj->fixedSlots().
+    DOMProperty = 1 << 5,     // A DOM property
+    FrameArgument = 1 << 6,   // An argument kept on the stack frame
+    WasmGlobalVar = 1 << 7,   // An asm.js/wasm private global var
+    WasmHeap = 1 << 8,        // An asm.js/wasm heap load
+    WasmHeapMeta = 1 << 9,    // The asm.js/wasm heap base pointer and
+                              // bounds check limit, in Tls.
+    TypedArrayLengthOrOffset = 1 << 10,  // A typed array's length or byteOffset
+    WasmGlobalCell = 1 << 11,            // A wasm global cell
     Last = WasmGlobalCell,
     Any = Last | (Last - 1),
 
@@ -362,8 +362,6 @@ class AliasSet {
   explicit AliasSet(uint32_t flags) : flags_(flags) {}
 
  public:
-  static const char* Name(size_t flag);
-
   inline bool isNone() const { return flags_ == None_; }
   uint32_t flags() const { return flags_ & Any; }
   inline bool isStore() const { return !!(flags_ & Store_); }
@@ -892,6 +890,7 @@ static inline bool SimpleArithOperand(MDefinition* op) {
   return !op->emptyResultTypeSet() && !op->mightBeType(MIRType::Object) &&
          !op->mightBeType(MIRType::String) &&
          !op->mightBeType(MIRType::Symbol) &&
+         !op->mightBeType(MIRType::BigInt) &&
          !op->mightBeType(MIRType::MagicOptimizedArguments) &&
          !op->mightBeType(MIRType::MagicHole) &&
          !op->mightBeType(MIRType::MagicIsConstructing);
@@ -1391,6 +1390,7 @@ class MConstant : public MNullaryInstruction {
       double d;
       JSString* str;
       JS::Symbol* sym;
+      BigInt* bi;
       JSObject* obj;
       uint64_t asBits;
     };
@@ -1507,6 +1507,10 @@ class MConstant : public MNullaryInstruction {
   JS::Symbol* toSymbol() const {
     MOZ_ASSERT(type() == MIRType::Symbol);
     return payload_.sym;
+  }
+  BigInt* toBigInt() const {
+    MOZ_ASSERT(type() == MIRType::BigInt);
+    return payload_.bi;
   }
   JSObject& toObject() const {
     MOZ_ASSERT(type() == MIRType::Object);
@@ -2138,12 +2142,10 @@ class MNewTypedArrayDynamicLength : public MUnaryInstruction,
       : MUnaryInstruction(classOpcode, length),
         templateObject_(templateObject),
         initialHeap_(initialHeap) {
+    MOZ_ASSERT(!templateObject->isSingleton());
     setGuard();  // Need to throw if length is negative.
     setResultType(MIRType::Object);
-    if (!templateObject->isSingleton()) {
-      setResultTypeSet(
-          MakeSingletonTypeSet(alloc, constraints, templateObject));
-    }
+    setResultTypeSet(MakeSingletonTypeSet(alloc, constraints, templateObject));
   }
 
  public:
@@ -2159,6 +2161,79 @@ class MNewTypedArrayDynamicLength : public MUnaryInstruction,
   bool appendRoots(MRootList& roots) const override {
     return roots.append(templateObject_);
   }
+};
+
+// Create a new TypedArray from an Array (or Array-like object) or a TypedArray.
+class MNewTypedArrayFromArray : public MUnaryInstruction,
+                                public SingleObjectPolicy::Data {
+  CompilerObject templateObject_;
+  gc::InitialHeap initialHeap_;
+
+  MNewTypedArrayFromArray(TempAllocator& alloc,
+                          CompilerConstraintList* constraints,
+                          JSObject* templateObject, gc::InitialHeap initialHeap,
+                          MDefinition* array)
+      : MUnaryInstruction(classOpcode, array),
+        templateObject_(templateObject),
+        initialHeap_(initialHeap) {
+    MOZ_ASSERT(!templateObject->isSingleton());
+    setGuard();  // Can throw during construction.
+    setResultType(MIRType::Object);
+    setResultTypeSet(MakeSingletonTypeSet(alloc, constraints, templateObject));
+  }
+
+ public:
+  INSTRUCTION_HEADER(NewTypedArrayFromArray)
+  TRIVIAL_NEW_WRAPPERS_WITH_ALLOC
+
+  MDefinition* array() const { return getOperand(0); }
+  JSObject* templateObject() const { return templateObject_; }
+  gc::InitialHeap initialHeap() const { return initialHeap_; }
+
+  bool appendRoots(MRootList& roots) const override {
+    return roots.append(templateObject_);
+  }
+
+  bool possiblyCalls() const override { return true; }
+};
+
+// Create a new TypedArray from an ArrayBuffer (or SharedArrayBuffer).
+class MNewTypedArrayFromArrayBuffer
+    : public MTernaryInstruction,
+      public MixPolicy<ObjectPolicy<0>, BoxPolicy<1>, BoxPolicy<2>>::Data {
+  CompilerObject templateObject_;
+  gc::InitialHeap initialHeap_;
+
+  MNewTypedArrayFromArrayBuffer(TempAllocator& alloc,
+                                CompilerConstraintList* constraints,
+                                JSObject* templateObject,
+                                gc::InitialHeap initialHeap,
+                                MDefinition* arrayBuffer,
+                                MDefinition* byteOffset, MDefinition* length)
+      : MTernaryInstruction(classOpcode, arrayBuffer, byteOffset, length),
+        templateObject_(templateObject),
+        initialHeap_(initialHeap) {
+    MOZ_ASSERT(!templateObject->isSingleton());
+    setGuard();  // Can throw during construction.
+    setResultType(MIRType::Object);
+    setResultTypeSet(MakeSingletonTypeSet(alloc, constraints, templateObject));
+  }
+
+ public:
+  INSTRUCTION_HEADER(NewTypedArrayFromArrayBuffer)
+  TRIVIAL_NEW_WRAPPERS_WITH_ALLOC
+
+  MDefinition* arrayBuffer() const { return getOperand(0); }
+  MDefinition* byteOffset() const { return getOperand(1); }
+  MDefinition* length() const { return getOperand(2); }
+  JSObject* templateObject() const { return templateObject_; }
+  gc::InitialHeap initialHeap() const { return initialHeap_; }
+
+  bool appendRoots(MRootList& roots) const override {
+    return roots.append(templateObject_);
+  }
+
+  bool possiblyCalls() const override { return true; }
 };
 
 class MNewObject : public MUnaryInstruction, public NoTypePolicy::Data {
@@ -3274,7 +3349,8 @@ class MUnbox final : public MUnaryInstruction, public BoxInputsPolicy::Data {
 
     MOZ_ASSERT(type == MIRType::Boolean || type == MIRType::Int32 ||
                type == MIRType::Double || type == MIRType::String ||
-               type == MIRType::Symbol || type == MIRType::Object);
+               type == MIRType::Symbol || type == MIRType::BigInt ||
+               type == MIRType::Object);
 
     TemporaryTypeSet* resultSet = ins->resultTypeSet();
     if (resultSet && type == MIRType::Object) {
@@ -3314,6 +3390,9 @@ class MUnbox final : public MUnaryInstruction, public BoxInputsPolicy::Data {
         break;
       case MIRType::Symbol:
         kind = Bailout_NonSymbolInput;
+        break;
+      case MIRType::BigInt:
+        kind = Bailout_NonBigIntInput;
         break;
       case MIRType::Object:
         kind = Bailout_NonObjectInput;
@@ -3574,17 +3653,6 @@ class MSetArgumentsObjectArg
   }
 };
 
-class MRunOncePrologue : public MNullaryInstruction {
- protected:
-  MRunOncePrologue() : MNullaryInstruction(classOpcode) { setGuard(); }
-
- public:
-  INSTRUCTION_HEADER(RunOncePrologue)
-  TRIVIAL_NEW_WRAPPERS
-
-  bool possiblyCalls() const override { return true; }
-};
-
 // Given a MIRType::Value A and a MIRType::Object B:
 // If the Value may be safely unboxed to an Object, return Object(A).
 // Otherwise, return B.
@@ -3639,9 +3707,10 @@ class MToDouble : public MToFPInstruction {
     setMovable();
 
     // An object might have "valueOf", which means it is effectful.
-    // ToNumber(symbol) throws.
+    // ToNumber(symbol) and ToNumber(bigint) throw.
     if (def->mightBeType(MIRType::Object) ||
-        def->mightBeType(MIRType::Symbol)) {
+        def->mightBeType(MIRType::Symbol) ||
+        def->mightBeType(MIRType::BigInt)) {
       setGuard();
     }
   }
@@ -3682,6 +3751,9 @@ class MToDouble : public MToFPInstruction {
     if (input()->type() == MIRType::Symbol) {
       return false;
     }
+    if (input()->type() == MIRType::BigInt) {
+      return false;
+    }
 
     return true;
   }
@@ -3703,9 +3775,10 @@ class MToFloat32 : public MToFPInstruction {
     setMovable();
 
     // An object might have "valueOf", which means it is effectful.
-    // ToNumber(symbol) throws.
+    // ToNumber(symbol) and ToNumber(BigInt) throw.
     if (def->mightBeType(MIRType::Object) ||
-        def->mightBeType(MIRType::Symbol)) {
+        def->mightBeType(MIRType::Symbol) ||
+        def->mightBeType(MIRType::BigInt)) {
       setGuard();
     }
   }
@@ -3942,6 +4015,39 @@ class MInt64ToFloatingPoint : public MUnaryInstruction,
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 };
 
+// Takes a boxed Value and returns a Value containing either a Number or a
+// BigInt.  Usually this will be the value itself, but it may be an object that
+// has a @@toPrimitive, valueOf, or toString method.
+class MToNumeric : public MUnaryInstruction, public BoxInputsPolicy::Data {
+  MToNumeric(MDefinition* arg, TemporaryTypeSet* types)
+      : MUnaryInstruction(classOpcode, arg) {
+    MOZ_ASSERT(!IsNumericType(arg->type()),
+               "Unboxable definitions don't need ToNumeric");
+    setResultType(MIRType::Value);
+    // Although `types' is always Int32|Double|BigInt, we have to compute it in
+    // IonBuilder to know whether emitting an MToNumeric is needed, so we just
+    // pass it through as an argument instead of recomputing it here.
+    setResultTypeSet(types);
+    setGuard();
+    setMovable();
+  }
+
+ public:
+  INSTRUCTION_HEADER(ToNumeric)
+  static MToNumeric* New(TempAllocator& alloc, MDefinition* arg,
+                         TemporaryTypeSet* types) {
+    return new (alloc) MToNumeric(arg, types);
+  }
+
+  void computeRange(TempAllocator& alloc) override;
+  bool congruentTo(const MDefinition* ins) const override {
+    return congruentIfOperandsEqual(ins);
+  }
+  MDefinition* foldsTo(TempAllocator& alloc) override;
+
+  ALLOW_CLONE(MToNumeric)
+};
+
 // Applies ECMA's ToNumber on a primitive (either typed or untyped) and expects
 // the result to be precisely representable as an Int32, otherwise bails.
 //
@@ -3961,9 +4067,10 @@ class MToNumberInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
     setMovable();
 
     // An object might have "valueOf", which means it is effectful.
-    // ToNumber(symbol) throws.
+    // ToNumber(symbol) and ToNumber(BigInt) throw.
     if (def->mightBeType(MIRType::Object) ||
-        def->mightBeType(MIRType::Symbol)) {
+        def->mightBeType(MIRType::Symbol) ||
+        def->mightBeType(MIRType::BigInt)) {
       setGuard();
     }
   }
@@ -4016,9 +4123,10 @@ class MTruncateToInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
     setMovable();
 
     // An object might have "valueOf", which means it is effectful.
-    // ToInt32(symbol) throws.
+    // ToInt32(symbol) and ToInt32(BigInt) throw.
     if (def->mightBeType(MIRType::Object) ||
-        def->mightBeType(MIRType::Symbol)) {
+        def->mightBeType(MIRType::Symbol) ||
+        def->mightBeType(MIRType::BigInt)) {
       setGuard();
     }
   }
@@ -4057,10 +4165,11 @@ class MToString : public MUnaryInstruction, public ToStringPolicy::Data {
     setResultType(MIRType::String);
     setMovable();
 
-    // Objects might override toString and Symbols throw. We bailout in
+    // Objects might override toString; Symbol and BigInts throw. We bailout in
     // those cases and run side-effects in baseline instead.
     if (def->mightBeType(MIRType::Object) ||
-        def->mightBeType(MIRType::Symbol)) {
+        def->mightBeType(MIRType::Symbol) ||
+        def->mightBeType(MIRType::BigInt)) {
       setGuard();
     }
   }
@@ -4620,8 +4729,6 @@ class MBinaryArithInstruction : public MBinaryInstruction,
     specialization_ = MIRType::Int32;
     setResultType(MIRType::Int32);
   }
-  void setNumberSpecialization(TempAllocator& alloc,
-                               BaselineInspector* inspector, jsbytecode* pc);
 
   virtual void trySpecializeFloat32(TempAllocator& alloc) override;
 
@@ -6306,44 +6413,29 @@ class MGlobalNameConflictsCheck : public MNullaryInstruction {
 
 // If not defined, set a global variable to |undefined|.
 class MDefVar : public MUnaryInstruction, public NoTypePolicy::Data {
-  CompilerPropertyName name_;  // Target name to be defined.
-  unsigned attrs_;             // Attributes to be set.
-
  private:
-  MDefVar(PropertyName* name, unsigned attrs, MDefinition* envChain)
-      : MUnaryInstruction(classOpcode, envChain), name_(name), attrs_(attrs) {}
+  explicit MDefVar(MDefinition* envChain)
+      : MUnaryInstruction(classOpcode, envChain) {}
 
  public:
   INSTRUCTION_HEADER(DefVar)
   TRIVIAL_NEW_WRAPPERS
   NAMED_OPERANDS((0, environmentChain))
 
-  PropertyName* name() const { return name_; }
-  unsigned attrs() const { return attrs_; }
-
   bool possiblyCalls() const override { return true; }
-  bool appendRoots(MRootList& roots) const override {
-    return roots.append(name_);
-  }
 };
 
-class MDefLexical : public MNullaryInstruction {
-  CompilerPropertyName name_;  // Target name to be defined.
-  unsigned attrs_;             // Attributes to be set.
-
+class MDefLexical : public MUnaryInstruction, public NoTypePolicy::Data {
  private:
-  MDefLexical(PropertyName* name, unsigned attrs)
-      : MNullaryInstruction(classOpcode), name_(name), attrs_(attrs) {}
+  explicit MDefLexical(MDefinition* envChain)
+      : MUnaryInstruction(classOpcode, envChain) {}
 
  public:
   INSTRUCTION_HEADER(DefLexical)
   TRIVIAL_NEW_WRAPPERS
+  NAMED_OPERANDS((0, environmentChain))
 
-  PropertyName* name() const { return name_; }
-  unsigned attrs() const { return attrs_; }
-  bool appendRoots(MRootList& roots) const override {
-    return roots.append(name_);
-  }
+  bool possiblyCalls() const override { return true; }
 };
 
 class MDefFun : public MBinaryInstruction, public ObjectPolicy<0>::Data {
@@ -6622,18 +6714,16 @@ class MModuleMetadata : public MNullaryInstruction {
   }
 };
 
-class MDynamicImport : public MBinaryInstruction, public BoxInputsPolicy::Data {
-  explicit MDynamicImport(MDefinition* referencingPrivate,
-                          MDefinition* specifier)
-      : MBinaryInstruction(classOpcode, referencingPrivate, specifier) {
+class MDynamicImport : public MUnaryInstruction, public BoxInputsPolicy::Data {
+  explicit MDynamicImport(MDefinition* specifier)
+      : MUnaryInstruction(classOpcode, specifier) {
     setResultType(MIRType::Object);
   }
 
  public:
   INSTRUCTION_HEADER(DynamicImport)
   TRIVIAL_NEW_WRAPPERS
-  NAMED_OPERANDS((0, referencingPrivate))
-  NAMED_OPERANDS((1, specifier))
+  NAMED_OPERANDS((0, specifier))
 };
 
 struct LambdaFunctionInfo {
@@ -7072,7 +7162,31 @@ class MTypedArrayLength : public MUnaryInstruction,
     return congruentIfOperandsEqual(ins);
   }
   AliasSet getAliasSet() const override {
-    return AliasSet::Load(AliasSet::TypedArrayLength);
+    return AliasSet::Load(AliasSet::TypedArrayLengthOrOffset);
+  }
+
+  void computeRange(TempAllocator& alloc) override;
+};
+
+// Read the byteOffset of a typed array.
+class MTypedArrayByteOffset : public MUnaryInstruction,
+                              public SingleObjectPolicy::Data {
+  explicit MTypedArrayByteOffset(MDefinition* obj)
+      : MUnaryInstruction(classOpcode, obj) {
+    setResultType(MIRType::Int32);
+    setMovable();
+  }
+
+ public:
+  INSTRUCTION_HEADER(TypedArrayByteOffset)
+  TRIVIAL_NEW_WRAPPERS
+  NAMED_OPERANDS((0, object))
+
+  bool congruentTo(const MDefinition* ins) const override {
+    return congruentIfOperandsEqual(ins);
+  }
+  AliasSet getAliasSet() const override {
+    return AliasSet::Load(AliasSet::TypedArrayLengthOrOffset);
   }
 
   void computeRange(TempAllocator& alloc) override;
@@ -7100,6 +7214,28 @@ class MTypedArrayElements : public MUnaryInstruction,
   }
 
   ALLOW_CLONE(MTypedArrayElements)
+};
+
+// Return the element shift of a typed array, i.e. the shift value so that
+// |1 << shift| is equal to the element size.
+class MTypedArrayElementShift : public MUnaryInstruction,
+                                public SingleObjectPolicy::Data {
+  explicit MTypedArrayElementShift(MDefinition* obj)
+      : MUnaryInstruction(classOpcode, obj) {
+    setResultType(MIRType::Int32);
+    setMovable();
+  }
+
+ public:
+  INSTRUCTION_HEADER(TypedArrayElementShift)
+  TRIVIAL_NEW_WRAPPERS
+  NAMED_OPERANDS((0, object))
+
+  bool congruentTo(const MDefinition* ins) const override {
+    return congruentIfOperandsEqual(ins);
+  }
+
+  void computeRange(TempAllocator& alloc) override;
 };
 
 class MSetDisjointTypedElements : public MTernaryInstruction,
@@ -10409,43 +10545,26 @@ class MNewNamedLambdaObject : public MNullaryInstruction {
   }
 };
 
-class MNewCallObjectBase : public MUnaryInstruction,
-                           public SingleObjectPolicy::Data {
- protected:
-  MNewCallObjectBase(Opcode op, MConstant* templateObj)
-      : MUnaryInstruction(op, templateObj) {
-    setResultType(MIRType::Object);
-  }
-
- public:
-  CallObject* templateObject() const {
-    return &getOperand(0)->toConstant()->toObject().as<CallObject>();
-  }
-  AliasSet getAliasSet() const override { return AliasSet::None(); }
-};
-
-class MNewCallObject : public MNewCallObjectBase {
+class MNewCallObject : public MUnaryInstruction,
+                       public SingleObjectPolicy::Data {
  public:
   INSTRUCTION_HEADER(NewCallObject)
   TRIVIAL_NEW_WRAPPERS
 
   explicit MNewCallObject(MConstant* templateObj)
-      : MNewCallObjectBase(classOpcode, templateObj) {
+      : MUnaryInstruction(classOpcode, templateObj) {
     MOZ_ASSERT(!templateObject()->isSingleton());
+    setResultType(MIRType::Object);
   }
+
+  CallObject* templateObject() const {
+    return &getOperand(0)->toConstant()->toObject().as<CallObject>();
+  }
+  AliasSet getAliasSet() const override { return AliasSet::None(); }
 
   MOZ_MUST_USE bool writeRecoverData(
       CompactBufferWriter& writer) const override;
   bool canRecoverOnBailout() const override { return true; }
-};
-
-class MNewSingletonCallObject : public MNewCallObjectBase {
- public:
-  INSTRUCTION_HEADER(NewSingletonCallObject)
-  TRIVIAL_NEW_WRAPPERS
-
-  explicit MNewSingletonCallObject(MConstant* templateObj)
-      : MNewCallObjectBase(classOpcode, templateObj) {}
 };
 
 class MNewStringObject : public MUnaryInstruction,
@@ -10772,10 +10891,19 @@ class MIsArray : public MUnaryInstruction,
 
 class MIsTypedArray : public MUnaryInstruction,
                       public SingleObjectPolicy::Data {
-  explicit MIsTypedArray(MDefinition* value)
-      : MUnaryInstruction(classOpcode, value) {
+  bool possiblyWrapped_;
+
+  explicit MIsTypedArray(MDefinition* value, bool possiblyWrapped)
+      : MUnaryInstruction(classOpcode, value),
+        possiblyWrapped_(possiblyWrapped) {
     setResultType(MIRType::Boolean);
-    setMovable();
+
+    if (possiblyWrapped) {
+      // Proxy checks may throw, so we're neither removable nor movable.
+      setGuard();
+    } else {
+      setMovable();
+    }
   }
 
  public:
@@ -10783,6 +10911,7 @@ class MIsTypedArray : public MUnaryInstruction,
   TRIVIAL_NEW_WRAPPERS
   NAMED_OPERANDS((0, value))
 
+  bool isPossiblyWrapped() const { return possiblyWrapped_; }
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 };
 
@@ -11796,15 +11925,10 @@ class MWasmCall final : public MVariadicInstruction, public NoTypePolicy::Data {
   wasm::CallSiteDesc desc_;
   wasm::CalleeDesc callee_;
   FixedList<AnyRegister> argRegs_;
-  uint32_t spIncrement_;
   ABIArg instanceArg_;
 
-  MWasmCall(const wasm::CallSiteDesc& desc, const wasm::CalleeDesc& callee,
-            uint32_t spIncrement)
-      : MVariadicInstruction(classOpcode),
-        desc_(desc),
-        callee_(callee),
-        spIncrement_(spIncrement) {}
+  MWasmCall(const wasm::CallSiteDesc& desc, const wasm::CalleeDesc& callee)
+      : MVariadicInstruction(classOpcode), desc_(desc), callee_(callee) {}
 
  public:
   INSTRUCTION_HEADER(WasmCall)
@@ -11818,13 +11942,12 @@ class MWasmCall final : public MVariadicInstruction, public NoTypePolicy::Data {
 
   static MWasmCall* New(TempAllocator& alloc, const wasm::CallSiteDesc& desc,
                         const wasm::CalleeDesc& callee, const Args& args,
-                        MIRType resultType, uint32_t spIncrement,
-                        MDefinition* tableIndex = nullptr);
+                        MIRType resultType, MDefinition* tableIndex = nullptr);
 
   static MWasmCall* NewBuiltinInstanceMethodCall(
       TempAllocator& alloc, const wasm::CallSiteDesc& desc,
       const wasm::SymbolicAddress builtin, const ABIArg& instanceArg,
-      const Args& args, MIRType resultType, uint32_t spIncrement);
+      const Args& args, MIRType resultType);
 
   size_t numArgs() const { return argRegs_.length(); }
   AnyRegister registerForArg(size_t index) const {
@@ -11833,7 +11956,6 @@ class MWasmCall final : public MVariadicInstruction, public NoTypePolicy::Data {
   }
   const wasm::CallSiteDesc& desc() const { return desc_; }
   const wasm::CalleeDesc& callee() const { return callee_; }
-  uint32_t spIncrement() const { return spIncrement_; }
 
   bool possiblyCalls() const override { return true; }
 

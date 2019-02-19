@@ -1,4 +1,10 @@
 use std::ffi::{CStr, CString};
+#[cfg(not(target_os = "macos"))]
+use std::ffi::OsString;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStringExt;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use std::os::unix::ffi::OsStringExt;
 use std::io::Cursor;
 use std::{mem, slice, ptr, env};
 use std::path::PathBuf;
@@ -18,7 +24,7 @@ use webrender::{ExternalImage, ExternalImageHandler, ExternalImageSource};
 use webrender::DebugFlags;
 use webrender::{ApiRecordingReceiver, BinaryRecorder};
 use webrender::{AsyncPropertySampler, PipelineInfo, SceneBuilderHooks};
-use webrender::{UploadMethod, VertexUsageHint};
+use webrender::{UploadMethod, VertexUsageHint, ProfilerHooks, set_profiler_hooks};
 use webrender::{Device, Shaders, WrShaders, ShaderPrecacheFlags};
 use thread_profiler::register_thread_with_profiler;
 use moz2d_renderer::Moz2dBlobImageHandler;
@@ -27,9 +33,6 @@ use app_units::Au;
 use rayon;
 use euclid::SideOffsets2D;
 use nsstring::nsAString;
-
-#[cfg(target_os = "windows")]
-use dwrote::{FontDescriptor, FontWeight, FontStretch, FontStyle};
 
 #[cfg(target_os = "macos")]
 use core_foundation::string::CFString;
@@ -140,6 +143,15 @@ impl WrSpaceAndClip {
     }
 }
 
+#[inline]
+fn clip_chain_id_to_webrender(id: u64, pipeline_id: WrPipelineId) -> ClipId {
+    if id == ROOT_CLIP_CHAIN {
+        ClipId::root(pipeline_id)
+    } else {
+        ClipId::ClipChain(ClipChainId(id, pipeline_id))
+    }
+}
+
 #[repr(C)]
 pub struct WrSpaceAndClipChain {
     space: WrSpatialId,
@@ -151,15 +163,27 @@ impl WrSpaceAndClipChain {
         //Warning: special case here to support dummy clip chain
         SpaceAndClipInfo {
             spatial_id: self.space.to_webrender(pipeline_id),
-            clip_id: if self.clip_chain == ROOT_CLIP_CHAIN {
-                ClipId::root(pipeline_id)
-            } else {
-                ClipId::ClipChain(ClipChainId(self.clip_chain, pipeline_id))
-            },
+            clip_id: clip_chain_id_to_webrender(self.clip_chain, pipeline_id),
         }
     }
 }
 
+#[repr(C)]
+pub enum WrStackingContextClip {
+    None,
+    ClipId(WrClipId),
+    ClipChain(u64),
+}
+
+impl WrStackingContextClip {
+    fn to_webrender(&self, pipeline_id: WrPipelineId) -> Option<ClipId> {
+        match *self {
+            WrStackingContextClip::None => None,
+            WrStackingContextClip::ClipChain(id) => Some(clip_chain_id_to_webrender(id, pipeline_id)),
+            WrStackingContextClip::ClipId(id) => Some(id.to_webrender(pipeline_id)),
+        }
+    }
+}
 
 fn make_slice<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
     if ptr.is_null() {
@@ -635,8 +659,8 @@ pub extern "C" fn wr_renderer_render(renderer: &mut Renderer,
       renderer.notify_slow_frame();
     }
     match renderer.render(DeviceIntSize::new(width, height)) {
-        Ok(stats) => {
-            *out_stats = stats;
+        Ok(results) => {
+            *out_stats = results.stats;
             true
         }
         Err(errors) => {
@@ -754,6 +778,26 @@ extern "C" {
     pub fn gecko_profiler_start_marker(name: *const c_char);
     pub fn gecko_profiler_end_marker(name: *const c_char);
 }
+
+/// Simple implementation of the WR ProfilerHooks trait to allow profile
+/// markers to be seen in the Gecko profiler.
+struct GeckoProfilerHooks;
+
+impl ProfilerHooks for GeckoProfilerHooks {
+    fn begin_marker(&self, label: &CStr) {
+        unsafe {
+            gecko_profiler_start_marker(label.as_ptr());
+        }
+    }
+
+    fn end_marker(&self, label: &CStr) {
+        unsafe {
+            gecko_profiler_end_marker(label.as_ptr());
+        }
+    }
+}
+
+const PROFILER_HOOKS: GeckoProfilerHooks = GeckoProfilerHooks {};
 
 #[allow(improper_ctypes)] // this is needed so that rustc doesn't complain about passing the &mut Transaction to an extern function
 extern "C" {
@@ -1095,6 +1139,9 @@ pub extern "C" fn wr_window_new(window_id: WrWindowId,
         enable_picture_caching,
         ..Default::default()
     };
+
+    // Ensure the WR profiler callbacks are hooked up to the Gecko profiler.
+    set_profiler_hooks(Some(&PROFILER_HOOKS));
 
     let notifier = Box::new(CppNotifier {
         window_id: window_id,
@@ -1692,11 +1739,9 @@ fn read_font_descriptor(
     index: u32
 ) -> NativeFontHandle {
     let wchars = bytes.convert_into_vec::<u16>();
-    FontDescriptor {
-        family_name: String::from_utf16(&wchars).unwrap(),
-        weight: FontWeight::from_u32(index & 0xffff),
-        stretch: FontStretch::from_u32((index >> 16) & 0xff),
-        style: FontStyle::from_u32((index >> 24) & 0xff),
+    NativeFontHandle {
+        path: PathBuf::from(OsString::from_wide(&wchars)),
+        index,
     }
 }
 
@@ -1716,9 +1761,9 @@ fn read_font_descriptor(
     bytes: &mut WrVecU8,
     index: u32
 ) -> NativeFontHandle {
-    let cstr = CString::new(bytes.flush_into_vec()).unwrap();
+    let chars = bytes.flush_into_vec();
     NativeFontHandle {
-        pathname: String::from(cstr.to_str().unwrap()),
+        path: PathBuf::from(OsString::from_vec(chars)),
         index,
     }
 }
@@ -1873,22 +1918,40 @@ pub extern "C" fn wr_dp_clear_save(state: &mut WrState) {
     state.frame_builder.dl_builder.clear_save();
 }
 
+#[repr(u8)]
+#[derive(PartialEq, Eq, Debug)]
+pub enum WrReferenceFrameKind {
+    Transform,
+    Perspective,
+}
+
+/// IMPORTANT: If you add fields to this struct, you need to also add initializers
+/// for those fields in WebRenderAPI.h.
+#[repr(C)]
+pub struct WrStackingContextParams {
+    pub clip: WrStackingContextClip,
+    pub animation: *const WrAnimationProperty,
+    pub opacity: *const f32,
+    pub transform_style: TransformStyle,
+    pub reference_frame_kind: WrReferenceFrameKind,
+    pub scrolling_relative_to: *const u64,
+    pub is_backface_visible: bool,
+    /// True if picture caching should be enabled for this stacking context.
+    pub cache_tiles: bool,
+    pub mix_blend_mode: MixBlendMode,
+}
+
 #[no_mangle]
-pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
-                                              mut bounds: LayoutRect,
-                                              spatial_id: WrSpatialId,
-                                              clip_node_id: *const WrClipId,
-                                              animation: *const WrAnimationProperty,
-                                              opacity: *const f32,
-                                              transform: *const LayoutTransform,
-                                              transform_style: TransformStyle,
-                                              perspective: *const LayoutTransform,
-                                              mix_blend_mode: MixBlendMode,
-                                              filters: *const FilterOp,
-                                              filter_count: usize,
-                                              is_backface_visible: bool,
-                                              glyph_raster_space: RasterSpace,
-                                              ) -> WrSpatialId {
+pub extern "C" fn wr_dp_push_stacking_context(
+    state: &mut WrState,
+    mut bounds: LayoutRect,
+    spatial_id: WrSpatialId,
+    params: &WrStackingContextParams,
+    transform: *const LayoutTransform,
+    filters: *const FilterOp,
+    filter_count: usize,
+    glyph_raster_space: RasterSpace,
+) -> WrSpatialId {
     debug_assert!(unsafe { !is_in_render_thread() });
 
     let c_filters = make_slice(filters, filter_count);
@@ -1896,17 +1959,15 @@ pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
                                                            *c_filter
     }).collect();
 
-    let clip_node_id_ref = unsafe { clip_node_id.as_ref() };
-
     let transform_ref = unsafe { transform.as_ref() };
     let mut transform_binding = match transform_ref {
-        Some(transform) => Some(PropertyBinding::Value(transform.clone())),
+        Some(t) => Some(PropertyBinding::Value(t.clone())),
         None => None,
     };
 
-    let opacity_ref = unsafe { opacity.as_ref() };
+    let opacity_ref = unsafe { params.opacity.as_ref() };
     let mut has_opacity_animation = false;
-    let anim = unsafe { animation.as_ref() };
+    let anim = unsafe { params.animation.as_ref() };
     if let Some(anim) = anim {
         debug_assert!(anim.id > 0);
         match anim.effect_type {
@@ -1935,28 +1996,35 @@ pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
         }
     }
 
-    let perspective_ref = unsafe { perspective.as_ref() };
-    let perspective = match perspective_ref {
-        Some(perspective) => Some(perspective.clone()),
-        None => None,
-    };
-
     let mut wr_spatial_id = spatial_id.to_webrender(state.pipeline_id);
-    let wr_clip_id = clip_node_id_ref.map(|id| id.to_webrender(state.pipeline_id));
+    let wr_clip_id = params.clip.to_webrender(state.pipeline_id);
 
-    let is_reference_frame = transform_binding.is_some() || perspective.is_some();
     // Note: 0 has special meaning in WR land, standing for ROOT_REFERENCE_FRAME.
     // However, it is never returned by `push_reference_frame`, and we need to return
     // an option here across FFI, so we take that 0 value for the None semantics.
     // This is resolved into proper `Maybe<WrSpatialId>` inside `WebRenderAPI::PushStackingContext`.
     let mut result = WrSpatialId { id: 0 };
-    if is_reference_frame {
+    if let Some(transform_binding) = transform_binding {
+        let scrolling_relative_to = match unsafe { params.scrolling_relative_to.as_ref() } {
+            Some(scroll_id) => {
+                debug_assert_eq!(params.reference_frame_kind, WrReferenceFrameKind::Perspective);
+                Some(ExternalScrollId(*scroll_id, state.pipeline_id))
+            }
+            None => None,
+        };
+
+        let reference_frame_kind = match params.reference_frame_kind {
+            WrReferenceFrameKind::Transform => ReferenceFrameKind::Transform,
+            WrReferenceFrameKind::Perspective => ReferenceFrameKind::Perspective {
+                scrolling_relative_to,
+            },
+        };
         wr_spatial_id = state.frame_builder.dl_builder.push_reference_frame(
             &bounds,
             wr_spatial_id,
-            transform_style,
+            params.transform_style,
             transform_binding,
-            perspective,
+            reference_frame_kind,
         );
 
         bounds.origin = LayoutPoint::zero();
@@ -1965,7 +2033,7 @@ pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
     }
 
     let prim_info = LayoutPrimitiveInfo {
-        is_backface_visible,
+        is_backface_visible: params.is_backface_visible,
         tag: state.current_tag,
         .. LayoutPrimitiveInfo::new(bounds)
     };
@@ -1975,10 +2043,11 @@ pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
          .push_stacking_context(&prim_info,
                                 wr_spatial_id,
                                 wr_clip_id,
-                                transform_style,
-                                mix_blend_mode,
+                                params.transform_style,
+                                params.mix_blend_mode,
                                 &filters,
-                                glyph_raster_space);
+                                glyph_raster_space,
+                                params.cache_tiles);
 
     result
 }

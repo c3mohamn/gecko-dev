@@ -1,6 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "URL", function() {
   return "http://localhost:" + httpserv.identity.primaryPort;
@@ -104,7 +103,7 @@ function doTest() {
   for (let tlsFlags of randomFlagValues) {
     let chan = makeChan(URL, tlsFlags);
     let listener = new Listener(tlsFlags);
-    chan.asyncOpen2(listener);
+    chan.asyncOpen(listener);
   }
 }
 

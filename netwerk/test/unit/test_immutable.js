@@ -1,5 +1,4 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var prefs;
 var spdypref;
@@ -116,7 +115,7 @@ function doTest1()
   var chan = makeChan(origin, "/immutable-test-without-attribute");
   var listener = new Listener();
   nextTest = doTest2;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function doTest2()
@@ -128,7 +127,7 @@ function doTest2()
   var listener = new Listener();
   nextTest = doTest3;
   chan.loadFlags = Ci.nsIRequest.VALIDATE_ALWAYS;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function doTest3()
@@ -140,7 +139,7 @@ function doTest3()
   var listener = new Listener();
   nextTest = doTest4;
   chan.loadFlags = Ci.nsIRequest.LOAD_BYPASS_CACHE;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function doTest4()
@@ -151,7 +150,7 @@ function doTest4()
   var chan = makeChan(origin, "/immutable-test-with-attribute");
   var listener = new Listener();
   nextTest = doTest5;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function doTest5()
@@ -163,7 +162,7 @@ function doTest5()
   var listener = new Listener();
   nextTest = doTest6;
   chan.loadFlags = Ci.nsIRequest.VALIDATE_ALWAYS;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 function doTest6()
@@ -175,7 +174,7 @@ function doTest6()
   var listener = new Listener();
   nextTest = testsDone;
   chan.loadFlags = Ci.nsIRequest.LOAD_BYPASS_CACHE;
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 }
 
 

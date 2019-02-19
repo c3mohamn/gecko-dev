@@ -104,6 +104,7 @@ mochitest-browser-chrome:
         by-test-platform:
             linux64-.*cov/opt: 7200
             windows10-64-ccov/debug: 7200
+            windows10-aarch64/*: 7200
             macosx64-ccov/debug: 10800
             linux.*/debug: 5400
             default: 3600
@@ -230,6 +231,21 @@ mochitest-devtools-chrome:
             default: default
     # Bug 1296086: high number of intermittents observed with software GL and large instances
     allow-software-gl-layers: false
+
+mochitest-devtools-webreplay:
+    description: "Mochitest devtools-webreplay run"
+    suite: mochitest/mochitest-devtools-webreplay
+    treeherder-symbol: M(dt-wr)
+    loopback-video: true
+    tier: 2
+    max-run-time: 900
+    mozharness:
+        mochitest-flavor: chrome
+    allow-software-gl-layers: false
+    run-on-projects:
+        by-test-platform:
+            macosx64.*/opt: ['trunk', 'try']
+            default: []
 
 mochitest-gpu:
     description: "Mochitest GPU run"

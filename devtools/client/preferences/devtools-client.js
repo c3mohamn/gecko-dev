@@ -50,8 +50,6 @@ pref("devtools.inspector.showUserAgentStyles", false);
 pref("devtools.inspector.showAllAnonymousContent", false);
 // Show user agent shadow roots
 pref("devtools.inspector.showUserAgentShadowRoots", false);
-// Enable the CSS shapes highlighter
-pref("devtools.inspector.shapesHighlighter.enabled", true);
 // Enable the font highlight-on-hover feature
 pref("devtools.inspector.fonthighlighter.enabled", true);
 // Enable tracking of style changes and the Changes panel in the Inspector
@@ -60,8 +58,12 @@ pref("devtools.inspector.changes.enabled", true);
 pref("devtools.inspector.new-rulesview.enabled", false);
 
 // Flexbox preferences
-pref("devtools.inspector.flexboxHighlighter.enabled", true);
-pref("devtools.flexboxinspector.enabled", true);
+// Whether or not to show the combined flexbox and box model highlighter.
+#if defined(NIGHTLY_BUILD) || defined(MOZ_DEV_EDITION)
+pref("devtools.inspector.flexboxHighlighter.combine", true);
+#else
+pref("devtools.inspector.flexboxHighlighter.combine", false);
+#endif
 
 // Grid highlighter preferences
 pref("devtools.gridinspector.gridOutlineMaxColumns", 50);
@@ -142,6 +144,11 @@ pref("devtools.performance.ui.experimental", false);
 // tests.
 // This isn't exposed directly to the user.
 pref("devtools.performance.recording.ui-base-url", "https://perf-html.io");
+
+// A JSON array of strings, where each string is a file path to an objdir on
+// the host machine. This is used in order to look up symbol information from
+// build artifacts of local builds.
+pref("devtools.performance.recording.objdirs", "[]");
 
 // The default cache UI setting
 pref("devtools.cache.disabled", false);
@@ -250,11 +257,6 @@ pref("devtools.browserconsole.filter.css", false);
 pref("devtools.browserconsole.filter.net", false);
 pref("devtools.browserconsole.filter.netxhr", false);
 
-// Web console filter bar settings
-pref("devtools.webconsole.ui.filterbar", false);
-// Browser console filter bar settings
-pref("devtools.browserconsole.ui.filterbar", false);
-
 // Max number of inputs to store in web console history.
 pref("devtools.webconsole.inputHistoryCount", 300);
 
@@ -278,6 +280,9 @@ pref("devtools.webconsole.sidebarToggle", false);
 
 // Enable CodeMirror in the JsTerm
 pref("devtools.webconsole.jsterm.codeMirror", true);
+
+// Enable editor mode in the console.
+pref("devtools.webconsole.input.editor", false);
 
 // Disable the new performance recording panel by default
 pref("devtools.performance.new-panel-enabled", false);
@@ -319,6 +324,9 @@ pref("devtools.responsive.reloadConditions.userAgent", false);
 pref("devtools.responsive.reloadNotification.enabled", true);
 // Whether or not touch simulation is enabled.
 pref("devtools.responsive.touchSimulation.enabled", false);
+// Whether or not meta viewport is enabled, if and only if touchSimulation
+// is also enabled.
+pref("devtools.responsive.metaViewport.enabled", false);
 // The user agent of the viewport.
 pref("devtools.responsive.userAgent", "");
 

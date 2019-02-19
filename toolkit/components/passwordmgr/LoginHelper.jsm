@@ -18,8 +18,8 @@ var EXPORTED_SYMBOLS = [
 
 // Globals
 
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
 // LoginHelper
 
@@ -34,6 +34,8 @@ var LoginHelper = {
   formlessCaptureEnabled: Services.prefs.getBoolPref("signon.formlessCapture.enabled"),
   schemeUpgrades: Services.prefs.getBoolPref("signon.schemeUpgrades"),
   insecureAutofill: Services.prefs.getBoolPref("signon.autofillForms.http"),
+  privateBrowsingCaptureEnabled:
+    Services.prefs.getBoolPref("signon.privateBrowsingCapture.enabled"),
 
   createLogger(aLogPrefix) {
     let getMaxLogLevel = () => {
@@ -60,6 +62,8 @@ var LoginHelper = {
       this.formlessCaptureEnabled = Services.prefs.getBoolPref("signon.formlessCapture.enabled");
       this.schemeUpgrades = Services.prefs.getBoolPref("signon.schemeUpgrades");
       this.insecureAutofill = Services.prefs.getBoolPref("signon.autofillForms.http");
+      this.privateBrowsingCaptureEnabled =
+        Services.prefs.getBoolPref("signon.privateBrowsingCapture.enabled");
       if (logger) {
         logger.maxLogLevel = getMaxLogLevel();
       }

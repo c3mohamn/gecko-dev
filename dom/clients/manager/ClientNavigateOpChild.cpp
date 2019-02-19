@@ -16,6 +16,7 @@
 #include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
 #include "nsURLHelper.h"
+#include "ReferrerInfo.h"
 
 namespace mozilla {
 namespace dom {
@@ -126,6 +127,13 @@ class NavigateLoadListener final : public nsIWebProgressListener,
     return NS_OK;
   }
 
+  NS_IMETHOD
+  OnContentBlockingEvent(nsIWebProgress* aWebProgress, nsIRequest* aRequest,
+                         uint32_t aEvent) override {
+    MOZ_CRASH("Unexpected notification.");
+    return NS_OK;
+  }
+
   NS_DECL_ISUPPORTS
 };
 
@@ -219,9 +227,10 @@ RefPtr<ClientOpPromise> ClientNavigateOpChild::DoNavigate(
   }
 
   RefPtr<nsDocShellLoadState> loadState = new nsDocShellLoadState(url);
-
+  nsCOMPtr<nsIReferrerInfo> referrerInfo =
+      new ReferrerInfo(doc->GetDocumentURI(), doc->GetReferrerPolicy());
   loadState->SetTriggeringPrincipal(principal);
-  loadState->SetReferrerPolicy(doc->GetReferrerPolicy());
+  loadState->SetReferrerInfo(referrerInfo);
   loadState->SetLoadType(LOAD_STOP_CONTENT);
   loadState->SetSourceDocShell(docShell);
   loadState->SetLoadFlags(nsIWebNavigation::LOAD_FLAGS_NONE);

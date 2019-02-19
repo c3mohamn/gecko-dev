@@ -1,4 +1,4 @@
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 function run_test() {
   do_test_pending();
@@ -38,5 +38,5 @@ function run_test() {
     uri: ios.newFileURI(file),
     loadUsingSystemPrincipal: true
   });
-  channel.asyncOpen2(listener);
+  channel.asyncOpen(listener);
 }

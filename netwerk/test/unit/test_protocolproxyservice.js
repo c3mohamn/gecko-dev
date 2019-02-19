@@ -20,7 +20,7 @@
 
 "use strict";
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var ios = Cc["@mozilla.org/network/io-service;1"]
             .getService(Ci.nsIIOService);
@@ -939,7 +939,7 @@ function failed_script_callback(pi)
     uri: "http://127.0.0.1:7247",
     loadUsingSystemPrincipal: true
   });
-  chan.asyncOpen2(directFilterListener);
+  chan.asyncOpen(directFilterListener);
 }
 
 var directFilterListener = {

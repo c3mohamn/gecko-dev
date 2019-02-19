@@ -14,6 +14,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/AutoCopyListener.h"
 #include "mozilla/AutoRestore.h"
+#include "mozilla/ContentIterator.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/SelectionBinding.h"
 #include "mozilla/dom/ShadowRoot.h"
@@ -37,7 +38,6 @@
 #include "nsTableCellFrame.h"
 #include "nsIScrollableFrame.h"
 #include "nsCCUncollectableMarker.h"
-#include "nsIContentIterator.h"
 #include "nsIDocumentEncoder.h"
 #include "nsTextFragment.h"
 #include <algorithm>
@@ -81,9 +81,9 @@ static bool IsValidSelectionPoint(nsFrameSelection* aFrameSel, nsINode* aNode);
 
 #ifdef PRINT_RANGE
 static void printRange(nsRange* aDomRange);
-#define DEBUG_OUT_RANGE(x) printRange(x)
+#  define DEBUG_OUT_RANGE(x) printRange(x)
 #else
-#define DEBUG_OUT_RANGE(x)
+#  define DEBUG_OUT_RANGE(x)
 #endif  // PRINT_RANGE
 
 /******************************************************************************
@@ -383,17 +383,19 @@ void printRange(nsRange* aDomRange) {
 }
 #endif /* PRINT_RANGE */
 
-void Selection::Stringify(nsAString& aResult) {
-  // We need FlushType::Frames here to make sure frames have been created for
-  // the selected content.  Use mFrameSelection->GetShell() which returns
-  // null if the Selection has been disconnected (the shell is Destroyed).
-  nsCOMPtr<nsIPresShell> shell =
-      mFrameSelection ? mFrameSelection->GetShell() : nullptr;
-  if (!shell) {
-    aResult.Truncate();
-    return;
+void Selection::Stringify(nsAString& aResult, FlushFrames aFlushFrames) {
+  if (aFlushFrames == FlushFrames::Yes) {
+    // We need FlushType::Frames here to make sure frames have been created for
+    // the selected content.  Use mFrameSelection->GetShell() which returns
+    // null if the Selection has been disconnected (the shell is Destroyed).
+    nsCOMPtr<nsIPresShell> shell =
+        mFrameSelection ? mFrameSelection->GetShell() : nullptr;
+    if (!shell) {
+      aResult.Truncate();
+      return;
+    }
+    shell->FlushPendingNotifications(FlushType::Frames);
   }
-  shell->FlushPendingNotifications(FlushType::Frames);
 
   IgnoredErrorResult rv;
   ToStringWithFormat(NS_LITERAL_STRING("text/plain"),
@@ -457,18 +459,21 @@ bool Selection::GetInterlinePosition(ErrorResult& aRv) {
   return mFrameSelection->GetHint() == CARET_ASSOCIATE_AFTER;
 }
 
-bool Selection::IsEditorSelection() const {
-  nsINode* focusNode = GetFocusNode();
-  if (!focusNode) {
+static bool IsEditorNode(const nsINode* aNode) {
+  if (!aNode) {
     return false;
   }
 
-  if (focusNode->IsEditable()) {
+  if (aNode->IsEditable()) {
     return true;
   }
 
-  auto* element = Element::FromNode(focusNode);
+  auto* element = Element::FromNode(aNode);
   return element && element->State().HasState(NS_EVENT_STATE_MOZ_READWRITE);
+}
+
+bool Selection::IsEditorSelection() const {
+  return IsEditorNode(GetFocusNode());
 }
 
 Nullable<int16_t> Selection::GetCaretBidiLevel(
@@ -911,16 +916,16 @@ nsresult Selection::SubtractRange(RangeData* aRange, nsRange* aSubtract,
 
 void Selection::UserSelectRangesToAdd(nsRange* aItem,
                                       nsTArray<RefPtr<nsRange>>& aRangesToAdd) {
-  aItem->ExcludeNonSelectableNodes(&aRangesToAdd);
-  if (aRangesToAdd.IsEmpty()) {
-    ErrorResult err;
-    nsINode* node = aItem->GetStartContainer(err);
-    if (node && node->IsContent() && node->AsContent()->GetEditingHost()) {
-      // A contenteditable node with user-select:none, for example.
-      // Allow it to have a collapsed selection (for the caret).
-      aItem->Collapse(GetDirection() == eDirPrevious);
-      aRangesToAdd.AppendElement(aItem);
-    }
+  // We cannot directly call IsEditorSelection() because we may be in an
+  // inconsistent state during Collapse() (we're cleared already but we haven't
+  // got a new focus node yet).
+  if (IsEditorNode(aItem->GetStartContainer()) &&
+      IsEditorNode(aItem->GetEndContainer())) {
+    // Don't mess with the selection ranges for editing, editor doesn't really
+    // deal well with multi-range selections.
+    aRangesToAdd.AppendElement(aItem);
+  } else {
+    aItem->ExcludeNonSelectableNodes(&aRangesToAdd);
   }
 }
 
@@ -1481,9 +1486,8 @@ void Selection::SelectFramesForContent(nsIContent* aContent, bool aSelected) {
 }
 
 // select all content children of aContent
-nsresult Selection::SelectAllFramesForContent(nsIContentIterator* aInnerIter,
-                                              nsIContent* aContent,
-                                              bool aSelected) {
+nsresult Selection::SelectAllFramesForContent(
+    PostContentIterator& aPostOrderIter, nsIContent* aContent, bool aSelected) {
   // If aContent doesn't have children, we should avoid to use the content
   // iterator for performance reason.
   if (!aContent->HasChildren()) {
@@ -1491,12 +1495,12 @@ nsresult Selection::SelectAllFramesForContent(nsIContentIterator* aInnerIter,
     return NS_OK;
   }
 
-  if (NS_WARN_IF(NS_FAILED(aInnerIter->Init(aContent)))) {
+  if (NS_WARN_IF(NS_FAILED(aPostOrderIter.Init(aContent)))) {
     return NS_ERROR_FAILURE;
   }
 
-  for (; !aInnerIter->IsDone(); aInnerIter->Next()) {
-    nsINode* node = aInnerIter->GetCurrentNode();
+  for (; !aPostOrderIter.IsDone(); aPostOrderIter.Next()) {
+    nsINode* node = aPostOrderIter.GetCurrentNode();
     MOZ_ASSERT(node);
     nsIContent* innercontent = node->IsContent() ? node->AsContent() : nullptr;
     SelectFramesForContent(innercontent, aSelected);
@@ -1576,18 +1580,18 @@ nsresult Selection::SelectFrames(nsPresContext* aPresContext, nsRange* aRange,
     return NS_OK;
   }
 
-  nsCOMPtr<nsIContentIterator> iter = NS_NewContentSubtreeIterator();
-  iter->Init(aRange);
-  if (isFirstContentTextNode && !iter->IsDone() &&
-      iter->GetCurrentNode() == startNode) {
-    iter->Next();  // first content has already been handled.
+  ContentSubtreeIterator subtreeIter;
+  subtreeIter.Init(aRange);
+  if (isFirstContentTextNode && !subtreeIter.IsDone() &&
+      subtreeIter.GetCurrentNode() == startNode) {
+    subtreeIter.Next();  // first content has already been handled.
   }
-  nsCOMPtr<nsIContentIterator> inneriter = NS_NewContentIterator();
-  for (; !iter->IsDone(); iter->Next()) {
-    nsINode* node = iter->GetCurrentNode();
+  PostContentIterator postOrderIter;
+  for (; !subtreeIter.IsDone(); subtreeIter.Next()) {
+    nsINode* node = subtreeIter.GetCurrentNode();
     MOZ_ASSERT(node);
     nsIContent* content = node->IsContent() ? node->AsContent() : nullptr;
-    SelectAllFramesForContent(inneriter, content, aSelect);
+    SelectAllFramesForContent(postOrderIter, content, aSelect);
   }
 
   // We must now do the last one if it is not the same as the first
@@ -3040,10 +3044,14 @@ nsresult Selection::ScrollIntoView(SelectionRegion aRegion,
                                    nsIPresShell::ScrollAxis aVertical,
                                    nsIPresShell::ScrollAxis aHorizontal,
                                    int32_t aFlags) {
-  if (!mFrameSelection) return NS_OK;  // nothing to do
+  if (!mFrameSelection) {
+    return NS_OK;
+  }
 
   nsIPresShell* presShell = mFrameSelection->GetShell();
-  if (!presShell) return NS_OK;
+  if (!presShell || !presShell->GetDocument()) {
+    return NS_OK;
+  }
 
   if (mFrameSelection->GetBatching()) return NS_OK;
 
@@ -3062,7 +3070,7 @@ nsresult Selection::ScrollIntoView(SelectionRegion aRegion,
   // either manually flush if they're in a safe position for it or use the
   // async version of this method.
   if (aFlags & Selection::SCROLL_DO_FLUSH) {
-    presShell->FlushPendingNotifications(FlushType::Layout);
+    presShell->GetDocument()->FlushPendingNotifications(FlushType::Layout);
 
     // Reget the presshell, since it might have been Destroy'ed.
     presShell = mFrameSelection ? mFrameSelection->GetShell() : nullptr;

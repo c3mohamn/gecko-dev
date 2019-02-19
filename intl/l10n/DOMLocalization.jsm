@@ -18,9 +18,9 @@
 /* fluent-dom@fa25466f (October 12, 2018) */
 
 const { Localization } =
-  ChromeUtils.import("resource://gre/modules/Localization.jsm", {});
+  ChromeUtils.import("resource://gre/modules/Localization.jsm");
 const { Services } =
-  ChromeUtils.import("resource://gre/modules/Services.jsm", {});
+  ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 // Match the opening angle bracket (<) in HTML tags, and HTML entities like
 // &amp;, &#0038;, &#x0026;.
@@ -570,6 +570,10 @@ class DOMLocalization extends Localization {
    * @returns {Promise}
    */
   translateRoots() {
+    if (this.resourceIds.length === 0) {
+      return Promise.resolve();
+    }
+
     const roots = Array.from(this.roots);
     return Promise.all(
       roots.map(async root => {
@@ -755,6 +759,12 @@ class DOMLocalization extends Localization {
       return undefined;
     }
 
+    // Remove elements from the pending list since
+    // their translations will get applied below.
+    for (let element of elements) {
+      this.pendingElements.delete(element);
+    }
+
     const keys = elements.map(this.getKeysForElement);
     const translations = await this.formatMessages(keys);
     return this.applyTranslations(elements, translations);
@@ -813,5 +823,10 @@ class DOMLocalization extends Localization {
   }
 }
 
-this.DOMLocalization = DOMLocalization;
-var EXPORTED_SYMBOLS = ["DOMLocalization"];
+/**
+ * Helper function which allows us to construct a new
+ * DOMLocalization from DocumentL10n.
+ */
+var getDOMLocalization = () => new DOMLocalization();
+
+var EXPORTED_SYMBOLS = ["DOMLocalization", "getDOMLocalization"];

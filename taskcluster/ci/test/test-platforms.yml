@@ -205,6 +205,18 @@ windows10-64/opt:
         - mochitest-headless
         - raptor-firefox
 
+# windows10-aarch64/opt:
+#     build-platform: win64-aarch64/opt
+#     test-sets:
+#         - awsy
+#         - desktop-screenshot-capture
+#         - windows-talos
+#         - marionette-gpu-tests
+#         - windows-tests
+#         - web-platform-tests
+#         - mochitest-headless
+#         - raptor-firefox
+
 windows10-64-ux/opt:
     build-platform: win64-nightly/opt
     test-sets:
@@ -253,6 +265,7 @@ windows10-64-qr/debug:
     build-platform: win64/debug
     test-sets:
         - windows-qr-tests
+        - web-platform-tests
 
 windows10-64-qr/opt:
     build-platform: win64/opt
@@ -261,6 +274,7 @@ windows10-64-qr/opt:
         - windows-qr-tests
         - windows-talos
         - raptor-firefox
+        - web-platform-tests
 
 ##
 # MacOS X platforms (matching /macosx.*/)
@@ -330,7 +344,18 @@ android-em-4.3-arm7-api-16/opt:
 android-em-7.0-x86/opt:
     build-platform: android-x86/opt
     test-sets:
-        - android-x86-kvm-tests
+        - android-x86-tests
+
+android-em-7.0-x86_64/opt:
+    build-platform: android-x86_64/opt
+    test-sets:
+        - android-x86_64-tests
+        - android-x86_64-opt-tests
+
+android-em-7.0-x86_64/debug:
+    build-platform: android-x86_64/debug
+    test-sets:
+        - android-x86_64-tests
 
 # android-hw test platforms execute on real devices attached to Autophone hosts.
 

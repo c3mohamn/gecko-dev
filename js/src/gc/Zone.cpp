@@ -52,7 +52,7 @@ JS::Zone::Zone(JSRuntime* rt)
       functionToStringCache_(this),
       keepAtomsCount(this, 0),
       purgeAtomsDeferred(this, 0),
-      usage(&rt->gc.usage),
+      zoneSize(&rt->gc.heapSize),
       threshold(),
       gcDelayBytes(0),
       tenuredStrings(this, 0),
@@ -70,7 +70,7 @@ JS::Zone::Zone(JSRuntime* rt)
       gcScheduled_(false),
       gcScheduledSaved_(false),
       gcPreserveCode_(false),
-      keepShapeTables_(this, false),
+      keepShapeCaches_(this, false),
       listNext_(NotOnList) {
   /* Ensure that there are no vtables to mess us up here. */
   MOZ_ASSERT(reinterpret_cast<JS::shadow::Zone*>(this) ==
@@ -195,8 +195,9 @@ void Zone::sweepWeakMaps() {
   WeakMapBase::sweepZone(this);
 }
 
-void Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode,
-                          bool releaseTypes) {
+void Zone::discardJitCode(FreeOp* fop,
+                          ShouldDiscardBaselineCode discardBaselineCode,
+                          ShouldReleaseTypes releaseTypes) {
   if (!jitZone()) {
     return;
   }
@@ -205,44 +206,44 @@ void Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode,
     return;
   }
 
-  if (discardBaselineCode) {
+  if (discardBaselineCode || releaseTypes) {
 #ifdef DEBUG
-    /* Assert no baseline scripts are marked as active. */
+    // Assert no TypeScripts are marked as active.
     for (auto script = cellIter<JSScript>(); !script.done(); script.next()) {
-      MOZ_ASSERT_IF(script->hasBaselineScript(),
-                    !script->baselineScript()->active());
+      if (TypeScript* types = script->types()) {
+        MOZ_ASSERT(!types->active());
+      }
     }
 #endif
 
-    /* Mark baseline scripts on the stack as active. */
-    jit::MarkActiveBaselineScripts(this);
+    // Mark TypeScripts on the stack as active.
+    jit::MarkActiveTypeScripts(this);
   }
 
-  /* Only mark OSI points if code is being discarded. */
+  // Invalidate all Ion code in this zone.
   jit::InvalidateAll(fop, this);
 
   for (auto script = cellIter<JSScript>(); !script.done(); script.next()) {
     jit::FinishInvalidation(fop, script);
 
-    /*
-     * Discard baseline script if it's not marked as active. Note that
-     * this also resets the active flag.
-     */
-    if (discardBaselineCode) {
-      jit::FinishDiscardBaselineScript(fop, script);
+    // Discard baseline script if it's not marked as active.
+    if (discardBaselineCode && script->hasBaselineScript()) {
+      if (script->types()->active()) {
+        // ICs will be purged so the script will need to warm back up before it
+        // can be inlined during Ion compilation.
+        script->baselineScript()->clearIonCompiledOrInlined();
+      } else {
+        jit::FinishDiscardBaselineScript(fop, script);
+      }
     }
 
-    /*
-     * Warm-up counter for scripts are reset on GC. After discarding code we
-     * need to let it warm back up to get information such as which
-     * opcodes are setting array holes or accessing getter properties.
-     */
+    // Warm-up counter for scripts are reset on GC. After discarding code we
+    // need to let it warm back up to get information such as which
+    // opcodes are setting array holes or accessing getter properties.
     script->resetWarmUpCounter();
 
-    /*
-     * Make it impossible to use the control flow graphs cached on the
-     * BaselineScript. They get deleted.
-     */
+    // Clear the BaselineScript's control flow graph. The LifoAlloc is purged
+    // below.
     if (script->hasBaselineScript()) {
       script->baselineScript()->setControlFlowGraph(nullptr);
     }
@@ -260,6 +261,11 @@ void Zone::discardJitCode(FreeOp* fop, bool discardBaselineCode,
     // purge stubs if we just destroyed the Typescript.
     if (discardBaselineCode && script->hasICScript()) {
       script->icScript()->purgeOptimizedStubs(script);
+    }
+
+    // Finally, reset the active flag.
+    if (TypeScript* types = script->types()) {
+      types->resetActive();
     }
   }
 
@@ -488,7 +494,7 @@ void JS::Zone::maybeTriggerGCForTooMuchMalloc(js::gc::MemoryCounter& counter,
     return;
   }
 
-  if (!rt->gc.triggerZoneGC(this, JS::gcreason::TOO_MUCH_MALLOC,
+  if (!rt->gc.triggerZoneGC(this, JS::GCReason::TOO_MUCH_MALLOC,
                             counter.bytes(), counter.maxBytes())) {
     return;
   }

@@ -23,6 +23,7 @@
 #include "Units.h"
 
 class nsDisplayItem;
+class nsDisplayTransform;
 
 namespace mozilla {
 
@@ -307,6 +308,41 @@ class MOZ_RAII AutoTransactionSender {
   TransactionBuilder* mTxn;
 };
 
+/**
+ * A set of optional parameters for stacking context creation.
+ */
+struct MOZ_STACK_CLASS StackingContextParams : public WrStackingContextParams {
+  StackingContextParams()
+      : WrStackingContextParams{WrStackingContextClip::None(),
+                                nullptr,
+                                nullptr,
+                                wr::TransformStyle::Flat,
+                                wr::WrReferenceFrameKind::Transform,
+                                nullptr,
+                                /* is_backface_visible = */ true,
+                                /* cache_tiles = */ false,
+                                wr::MixBlendMode::Normal} {}
+
+  void SetPreserve3D(bool aPreserve) {
+    transform_style =
+        aPreserve ? wr::TransformStyle::Preserve3D : wr::TransformStyle::Flat;
+  }
+
+  nsTArray<wr::FilterOp> mFilters;
+  wr::LayoutRect mBounds = wr::ToLayoutRect(LayoutDeviceRect());
+  const gfx::Matrix4x4* mBoundTransform = nullptr;
+  const gfx::Matrix4x4* mTransformPtr = nullptr;
+  Maybe<nsDisplayTransform*> mDeferredTransformItem;
+  // Whether the stacking context is possibly animated. This alters how
+  // coordinates are transformed/snapped to invalidate less when transforms
+  // change frequently.
+  bool mAnimated = false;
+  // Whether items should be rasterized in a local space that is (mostly)
+  // invariant to transforms, i.e. disabling subpixel AA and screen space pixel
+  // snapping on text runs that would only make sense in screen space.
+  bool mRasterizeLocally = false;
+};
+
 /// This is a simple C++ wrapper around WrState defined in the rust bindings.
 /// We may want to turn this into a direct wrapper on top of
 /// WebRenderFrameBuilder instead, so the interface may change a bit.
@@ -329,18 +365,11 @@ class DisplayListBuilder {
                 wr::BuiltDisplayList& aOutDisplayList);
 
   Maybe<wr::WrSpatialId> PushStackingContext(
-      const wr::LayoutRect&
-          aBounds,  // TODO: We should work with strongly typed rects
-      const wr::WrClipId* aClipNodeId,
-      const wr::WrAnimationProperty* aAnimation, const float* aOpacity,
-      const gfx::Matrix4x4* aTransform, wr::TransformStyle aTransformStyle,
-      const gfx::Matrix4x4* aPerspective, const wr::MixBlendMode& aMixBlendMode,
-      const nsTArray<wr::FilterOp>& aFilters, bool aIsBackfaceVisible,
+      const StackingContextParams& aParams, const wr::LayoutRect& aBounds,
       const wr::RasterSpace& aRasterSpace);
   void PopStackingContext(bool aIsReferenceFrame);
 
-  wr::WrClipChainId DefineClipChain(const Maybe<wr::WrClipChainId>& aParent,
-                                    const nsTArray<wr::WrClipId>& aClips);
+  wr::WrClipChainId DefineClipChain(const nsTArray<wr::WrClipId>& aClips);
 
   wr::WrClipId DefineClip(
       const Maybe<wr::WrSpaceAndClip>& aParent, const wr::LayoutRect& aClipRect,
@@ -485,6 +514,10 @@ class DisplayListBuilder {
                      const float& aSpreadRadius,
                      const wr::BorderRadius& aBorderRadius,
                      const wr::BoxShadowClipMode& aClipMode);
+
+  uint64_t CurrentClipChainId() const {
+    return mCurrentSpaceAndClipChain.clip_chain;
+  }
 
   // Checks to see if the innermost enclosing fixed pos item has the same
   // ASR. If so, it returns the scroll target for that fixed-pos item.

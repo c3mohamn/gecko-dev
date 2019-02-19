@@ -19,6 +19,7 @@
 #include "vm/RegExpStatics.h"
 #include "vm/SelfHosting.h"
 
+#include "vm/EnvironmentObject-inl.h"
 #include "vm/JSObject-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/ObjectOperations-inl.h"
@@ -483,7 +484,7 @@ bool js::regexp_construct(JSContext* cx, unsigned argc, Value* vp) {
 
     // Step 7.
     RootedObject proto(cx);
-    if (!GetPrototypeFromBuiltinConstructor(cx, args, &proto)) {
+    if (!GetPrototypeFromBuiltinConstructor(cx, args, JSProto_RegExp, &proto)) {
       return false;
     }
 
@@ -559,7 +560,7 @@ bool js::regexp_construct(JSContext* cx, unsigned argc, Value* vp) {
 
   // Step 7.
   RootedObject proto(cx);
-  if (!GetPrototypeFromBuiltinConstructor(cx, args, &proto)) {
+  if (!GetPrototypeFromBuiltinConstructor(cx, args, JSProto_RegExp, &proto)) {
     return false;
   }
 
@@ -608,13 +609,9 @@ bool js::regexp_construct_raw_flags(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-MOZ_ALWAYS_INLINE bool IsRegExpPrototype(HandleValue v) {
-  if (IsRegExpObject(v) || !v.isObject()) {
-    return false;
-  }
-
-  // Note: The prototype shares its JSClass with instances.
-  return StandardProtoKeyOrNull(&v.toObject()) == JSProto_RegExp;
+MOZ_ALWAYS_INLINE bool IsRegExpPrototype(HandleValue v, JSContext* cx) {
+  return (v.isObject() &&
+          cx->global()->maybeGetRegExpPrototype() == &v.toObject());
 }
 
 // ES 2017 draft 21.2.5.4.
@@ -631,7 +628,7 @@ bool js::regexp_global(JSContext* cx, unsigned argc, JS::Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Step 3.a.
-  if (IsRegExpPrototype(args.thisv())) {
+  if (IsRegExpPrototype(args.thisv(), cx)) {
     args.rval().setUndefined();
     return true;
   }
@@ -655,7 +652,7 @@ bool js::regexp_ignoreCase(JSContext* cx, unsigned argc, JS::Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Step 3.a.
-  if (IsRegExpPrototype(args.thisv())) {
+  if (IsRegExpPrototype(args.thisv(), cx)) {
     args.rval().setUndefined();
     return true;
   }
@@ -679,7 +676,7 @@ bool js::regexp_multiline(JSContext* cx, unsigned argc, JS::Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Step 3.a.
-  if (IsRegExpPrototype(args.thisv())) {
+  if (IsRegExpPrototype(args.thisv(), cx)) {
     args.rval().setUndefined();
     return true;
   }
@@ -713,7 +710,7 @@ static bool regexp_source(JSContext* cx, unsigned argc, JS::Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Step 3.a.
-  if (IsRegExpPrototype(args.thisv())) {
+  if (IsRegExpPrototype(args.thisv(), cx)) {
     args.rval().setString(cx->names().emptyRegExp);
     return true;
   }
@@ -736,7 +733,7 @@ bool js::regexp_sticky(JSContext* cx, unsigned argc, JS::Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Step 3.a.
-  if (IsRegExpPrototype(args.thisv())) {
+  if (IsRegExpPrototype(args.thisv(), cx)) {
     args.rval().setUndefined();
     return true;
   }
@@ -760,7 +757,7 @@ bool js::regexp_unicode(JSContext* cx, unsigned argc, JS::Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
   // Step 3.a.
-  if (IsRegExpPrototype(args.thisv())) {
+  if (IsRegExpPrototype(args.thisv(), cx)) {
     args.rval().setUndefined();
     return true;
   }

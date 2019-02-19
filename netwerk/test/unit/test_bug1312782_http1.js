@@ -20,8 +20,8 @@
 //    plus 4. Also, the request ids of the rest requests should be less than non-focused
 //    window id + 2.
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var server = new HttpServer();
 server.start(-1);
@@ -60,7 +60,7 @@ function createHttpRequest(windowId, requestId) {
   var listner = new HttpResponseListener(requestId);
   chan.setRequestHeader("X-ID", requestId, false);
   chan.setRequestHeader("Cache-control", "no-store", false);
-  chan.asyncOpen2(listner);
+  chan.asyncOpen(listner);
   log("Create http request id=" + requestId);
 }
 

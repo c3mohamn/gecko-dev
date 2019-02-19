@@ -9,6 +9,7 @@
 #include "TextEditUtils.h"
 #include "TypeInState.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/ContentIterator.h"
 #include "mozilla/EditAction.h"
 #include "mozilla/EditorUtils.h"
 #include "mozilla/SelectionState.h"
@@ -26,7 +27,6 @@
 #include "nsGkAtoms.h"
 #include "nsAtom.h"
 #include "nsIContent.h"
-#include "nsIContentIterator.h"
 #include "nsNameSpaceManager.h"
 #include "nsINode.h"
 #include "nsISupportsImpl.h"
@@ -67,6 +67,19 @@ nsresult HTMLEditor::SetInlinePropertyAsAction(nsAtom& aProperty,
   if (NS_WARN_IF(!editActionData.CanHandle())) {
     return NS_ERROR_NOT_INITIALIZED;
   }
+  switch (editActionData.GetEditAction()) {
+    case EditAction::eSetFontFamilyProperty:
+      MOZ_ASSERT(!aValue.IsVoid());
+      // XXX Should we trim unnecessary whitespaces?
+      editActionData.SetData(aValue);
+      break;
+    case EditAction::eSetColorProperty:
+    case EditAction::eSetBackgroundColorPropertyInline:
+      editActionData.SetColorData(aValue);
+      break;
+    default:
+      break;
+  }
 
   AutoTransactionBatch treatAsOneTransaction(*this);
 
@@ -104,6 +117,19 @@ HTMLEditor::SetInlineProperty(const nsAString& aProperty,
       HTMLEditUtils::GetEditActionForFormatText(*property, attribute, true));
   if (NS_WARN_IF(!editActionData.CanHandle())) {
     return NS_ERROR_NOT_INITIALIZED;
+  }
+  switch (editActionData.GetEditAction()) {
+    case EditAction::eSetFontFamilyProperty:
+      MOZ_ASSERT(!aValue.IsVoid());
+      // XXX Should we trim unnecessary whitespaces?
+      editActionData.SetData(aValue);
+      break;
+    case EditAction::eSetColorProperty:
+    case EditAction::eSetBackgroundColorPropertyInline:
+      editActionData.SetColorData(aValue);
+      break;
+    default:
+      break;
   }
   return SetInlinePropertyInternal(*property, attribute, aValue);
 }
@@ -175,18 +201,17 @@ nsresult HTMLEditor::SetInlinePropertyInternal(nsAtom& aProperty,
       // (since doing operations on the document during iteration would perturb
       // the iterator).
 
-      OwningNonNull<nsIContentIterator> iter = NS_NewContentSubtreeIterator();
-
       nsTArray<OwningNonNull<nsIContent>> arrayOfNodes;
 
       // Iterate range and build up array
-      rv = iter->Init(range);
+      ContentSubtreeIterator subtreeIter;
+      rv = subtreeIter.Init(range);
       // Init returns an error if there are no nodes in range.  This can easily
       // happen with the subtree iterator if the selection doesn't contain any
       // *whole* nodes.
       if (NS_SUCCEEDED(rv)) {
-        for (; !iter->IsDone(); iter->Next()) {
-          OwningNonNull<nsINode> node = *iter->GetCurrentNode();
+        for (; !subtreeIter.IsDone(); subtreeIter.Next()) {
+          OwningNonNull<nsINode> node = *subtreeIter.GetCurrentNode();
 
           if (node->IsContent() && IsEditable(node)) {
             arrayOfNodes.AppendElement(*node->AsContent());
@@ -1041,18 +1066,22 @@ nsresult HTMLEditor::GetInlinePropertyBase(nsAtom& aProperty,
     }
 
     // Non-collapsed selection
-    nsCOMPtr<nsIContentIterator> iter = NS_NewContentIterator();
 
     nsAutoString firstValue, theValue;
 
     nsCOMPtr<nsINode> endNode = range->GetEndContainer();
     int32_t endOffset = range->EndOffset();
 
-    for (iter->Init(range); !iter->IsDone(); iter->Next()) {
-      if (!iter->GetCurrentNode()->IsContent()) {
+    PostContentIterator postOrderIter;
+    DebugOnly<nsresult> rvIgnored = postOrderIter.Init(range);
+    NS_WARNING_ASSERTION(NS_SUCCEEDED(rvIgnored),
+                         "Failed to initialize post-order content iterator");
+    for (; !postOrderIter.IsDone(); postOrderIter.Next()) {
+      if (!postOrderIter.GetCurrentNode()->IsContent()) {
         continue;
       }
-      nsCOMPtr<nsIContent> content = iter->GetCurrentNode()->AsContent();
+      nsCOMPtr<nsIContent> content =
+          postOrderIter.GetCurrentNode()->AsContent();
 
       if (content->IsHTMLElement(nsGkAtoms::body)) {
         break;
@@ -1220,7 +1249,18 @@ nsresult HTMLEditor::RemoveInlinePropertyAsAction(nsAtom& aProperty,
   if (NS_WARN_IF(!editActionData.CanHandle())) {
     return NS_ERROR_NOT_INITIALIZED;
   }
-
+  switch (editActionData.GetEditAction()) {
+    case EditAction::eRemoveFontFamilyProperty:
+      MOZ_ASSERT(!EmptyString().IsVoid());
+      editActionData.SetData(EmptyString());
+      break;
+    case EditAction::eRemoveColorProperty:
+    case EditAction::eRemoveBackgroundColorPropertyInline:
+      editActionData.SetColorData(EmptyString());
+      break;
+    default:
+      break;
+  }
   nsresult rv = RemoveInlinePropertyInternal(&aProperty, aAttribute);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
@@ -1240,7 +1280,18 @@ HTMLEditor::RemoveInlineProperty(const nsAString& aProperty,
   if (NS_WARN_IF(!editActionData.CanHandle())) {
     return NS_ERROR_NOT_INITIALIZED;
   }
-
+  switch (editActionData.GetEditAction()) {
+    case EditAction::eRemoveFontFamilyProperty:
+      MOZ_ASSERT(!EmptyString().IsVoid());
+      editActionData.SetData(EmptyString());
+      break;
+    case EditAction::eRemoveColorProperty:
+    case EditAction::eRemoveBackgroundColorPropertyInline:
+      editActionData.SetColorData(EmptyString());
+      break;
+    default:
+      break;
+  }
   return RemoveInlinePropertyInternal(property, attribute);
 }
 
@@ -1341,13 +1392,16 @@ nsresult HTMLEditor::RemoveInlinePropertyInternal(nsAtom* aProperty,
         }
       } else {
         // Not the easy case.  Range not contained in single text node.
-        nsCOMPtr<nsIContentIterator> iter = NS_NewContentSubtreeIterator();
 
         nsTArray<OwningNonNull<nsIContent>> arrayOfNodes;
 
         // Iterate range and build up array
-        for (iter->Init(range); !iter->IsDone(); iter->Next()) {
-          nsCOMPtr<nsINode> node = iter->GetCurrentNode();
+        ContentSubtreeIterator subtreeIter;
+        DebugOnly<nsresult> rvIgnored = subtreeIter.Init(range);
+        NS_WARNING_ASSERTION(NS_SUCCEEDED(rvIgnored),
+                             "Failed to initialize subtree iterator");
+        for (; !subtreeIter.IsDone(); subtreeIter.Next()) {
+          nsCOMPtr<nsINode> node = subtreeIter.GetCurrentNode();
           if (NS_WARN_IF(!node)) {
             return NS_ERROR_FAILURE;
           }
@@ -1488,17 +1542,17 @@ nsresult HTMLEditor::RelativeFontChange(FontSize aDir) {
       // (since doing operations on the document during iteration would perturb
       // the iterator).
 
-      OwningNonNull<nsIContentIterator> iter = NS_NewContentSubtreeIterator();
-
       // Iterate range and build up array
-      rv = iter->Init(range);
+      ContentSubtreeIterator subtreeIter;
+      rv = subtreeIter.Init(range);
       if (NS_SUCCEEDED(rv)) {
         nsTArray<OwningNonNull<nsIContent>> arrayOfNodes;
-        for (; !iter->IsDone(); iter->Next()) {
-          if (NS_WARN_IF(!iter->GetCurrentNode()->IsContent())) {
+        for (; !subtreeIter.IsDone(); subtreeIter.Next()) {
+          if (NS_WARN_IF(!subtreeIter.GetCurrentNode()->IsContent())) {
             return NS_ERROR_FAILURE;
           }
-          OwningNonNull<nsIContent> node = *iter->GetCurrentNode()->AsContent();
+          OwningNonNull<nsIContent> node =
+              *subtreeIter.GetCurrentNode()->AsContent();
 
           if (IsEditable(node)) {
             arrayOfNodes.AppendElement(node);

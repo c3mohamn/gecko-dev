@@ -1,7 +1,7 @@
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
-ChromeUtils.import("resource://testing-common/UrlClassifierTestUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
-ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {UrlClassifierTestUtils} = ChromeUtils.import("resource://testing-common/UrlClassifierTestUtils.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+var {Services} = ChromeUtils.import('resource://gre/modules/Services.jsm');
 
 // This test supports both e10s and non-e10s mode. In non-e10s mode, this test
 // drives itself by creating a profile directory, setting up the URL classifier
@@ -96,7 +96,7 @@ function doPriorityTest() {
   Assert.ok("topWindowURI" in currentTest, "check for incomplete test case");
 
   var channel = makeChannel(currentTest.path, currentTest.loadingPrincipal, currentTest.topWindowURI);
-  channel.asyncOpen2(new listener(currentTest.expectedTracking,
+  channel.asyncOpen(new listener(currentTest.expectedTracking,
                                   currentTest.expectedPriority,
                                   currentTest.expectedThrottleable,
                                   doPriorityTest));

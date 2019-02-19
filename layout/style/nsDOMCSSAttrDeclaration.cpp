@@ -78,7 +78,7 @@ nsresult nsDOMCSSAttributeDeclaration::SetCSSDeclaration(
 
   aDecl->SetDirty();
   return mIsSMILOverride
-             ? mElement->SetSMILOverrideStyleDeclaration(aDecl, true)
+             ? mElement->SetSMILOverrideStyleDeclaration(aDecl)
              : mElement->SetInlineStyleDeclaration(*aDecl, *aClosureData);
 }
 
@@ -133,7 +133,7 @@ nsDOMCSSAttributeDeclaration::GetParsingEnvironment(
 }
 
 nsresult nsDOMCSSAttributeDeclaration::SetSMILValue(
-    const nsCSSPropertyID aPropID, const nsSMILValue& aValue) {
+    const nsCSSPropertyID aPropID, const SMILValue& aValue) {
   MOZ_ASSERT(mIsSMILOverride);
   // No need to do the ActiveLayerTracker / ScrollLinkedEffectDetector bits,
   // since we're in a SMIL animation anyway, no need to try to detect we're a

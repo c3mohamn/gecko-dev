@@ -44,7 +44,7 @@ function transformPacket(packet) {
       return transformConsoleAPICallPacket(packet);
     }
 
-    case "navigationMessage": {
+    case "will-navigate": {
       return transformNavigationMessagePacket(packet);
     }
 
@@ -194,14 +194,12 @@ function transformConsoleAPICallPacket(packet) {
 }
 
 function transformNavigationMessagePacket(packet) {
-  const { message } = packet;
+  const { url } = packet;
   return new ConsoleMessage({
     source: MESSAGE_SOURCE.CONSOLE_API,
     type: MESSAGE_TYPE.NAVIGATION_MARKER,
     level: MESSAGE_LEVEL.LOG,
-    messageText: l10n.getFormatStr("webconsole.navigated", [message.url]),
-    timeStamp: message.timeStamp,
-    private: message.private,
+    messageText: l10n.getFormatStr("webconsole.navigated", [url]),
   });
 }
 
@@ -246,6 +244,7 @@ function transformPageErrorPacket(packet) {
     messageText: pageError.errorMessage,
     stacktrace: pageError.stacktrace ? pageError.stacktrace : null,
     frame,
+    errorMessageName: pageError.errorMessageName,
     exceptionDocURL: pageError.exceptionDocURL,
     timeStamp: pageError.timeStamp,
     notes: pageError.notes,
@@ -277,6 +276,7 @@ function transformNetworkEventPacket(packet) {
 function transformEvaluationResultPacket(packet) {
   let {
     exceptionMessage,
+    errorMessageName,
     exceptionDocURL,
     exception,
     frame,
@@ -312,6 +312,7 @@ function transformEvaluationResultPacket(packet) {
     level,
     messageText: exceptionMessage,
     parameters: [parameter],
+    errorMessageName,
     exceptionDocURL,
     frame,
     timeStamp,
@@ -333,6 +334,8 @@ function getRepeatId(message) {
     type: message.type,
     userProvidedStyles: message.userProvidedStyles,
     private: message.private,
+    stacktrace: message.stacktrace,
+    executionPoint: message.executionPoint,
   });
 }
 
@@ -346,9 +349,6 @@ function convertCachedPacket(packet) {
   } else if (packet._type === "PageError") {
     convertPacket.pageError = packet;
     convertPacket.type = "pageError";
-  } else if ("_navPayload" in packet) {
-    convertPacket.type = "navigationMessage";
-    convertPacket.message = packet;
   } else if (packet._type === "NetworkEvent") {
     convertPacket.networkEvent = packet;
     convertPacket.type = "networkEvent";

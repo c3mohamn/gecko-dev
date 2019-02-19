@@ -48,6 +48,7 @@ ABIArg ABIArgGenerator::softNext(MIRType type) {
   switch (type) {
     case MIRType::Int32:
     case MIRType::Pointer:
+    case MIRType::RefOrNull:
       if (intRegIndex_ == NumIntArgRegs) {
         current_ = ABIArg(stackOffset_);
         stackOffset_ += sizeof(uint32_t);
@@ -108,6 +109,7 @@ ABIArg ABIArgGenerator::hardNext(MIRType type) {
   switch (type) {
     case MIRType::Int32:
     case MIRType::Pointer:
+    case MIRType::RefOrNull:
       if (intRegIndex_ == NumIntArgRegs) {
         current_ = ABIArg(stackOffset_);
         stackOffset_ += sizeof(uint32_t);
@@ -1114,6 +1116,10 @@ VFPRegister VFPRegister::singleOverlay(unsigned int which) const {
   MOZ_ASSERT(which == 0);
   return VFPRegister(code_, Single);
 }
+
+static_assert(
+    FloatRegisters::TotalDouble <= 16,
+    "We assume that every Double register also has an Integer personality");
 
 VFPRegister VFPRegister::sintOverlay(unsigned int which) const {
   MOZ_ASSERT(!_isInvalid);

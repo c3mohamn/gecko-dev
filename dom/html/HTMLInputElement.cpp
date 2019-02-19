@@ -52,7 +52,6 @@
 #include "nsError.h"
 #include "nsIEditor.h"
 #include "nsAttrValueOrString.h"
-#include "nsDateTimeControlFrame.h"
 
 #include "mozilla/PresState.h"
 #include "nsLinebreakConverter.h"  //to strip out carriage returns
@@ -2057,26 +2056,20 @@ void HTMLInputElement::GetDateTimeInputBoxValue(DateTimeValue& aValue) {
   aValue = *mDateTimeInputBoxValue;
 }
 
-Element* HTMLInputElement::GetDateTimeBoxElementInUAWidget() {
-  if (GetShadowRoot()) {
-    // The datetimebox <div> is the only child of the UA Widget Shadow Root
-    // if it is present.
-    MOZ_ASSERT(GetShadowRoot()->IsUAWidget());
-    MOZ_ASSERT(1 >= GetShadowRoot()->GetChildCount());
-    if (nsIContent* inputAreaContent = GetShadowRoot()->GetFirstChild()) {
-      return inputAreaContent->AsElement();
-    }
+Element* HTMLInputElement::GetDateTimeBoxElement() {
+  if (!GetShadowRoot()) {
+    return nullptr;
+  }
+
+  // The datetimebox <div> is the only child of the UA Widget Shadow Root
+  // if it is present.
+  MOZ_ASSERT(GetShadowRoot()->IsUAWidget());
+  MOZ_ASSERT(1 >= GetShadowRoot()->GetChildCount());
+  if (nsIContent* inputAreaContent = GetShadowRoot()->GetFirstChild()) {
+    return inputAreaContent->AsElement();
   }
 
   return nullptr;
-}
-
-Element* HTMLInputElement::GetDateTimeBoxElement() {
-  nsDateTimeControlFrame* frame = do_QueryFrame(GetPrimaryFrame());
-  if (frame && frame->GetInputAreaContent()) {
-    return frame->GetInputAreaContent()->AsElement();
-  }
-  return GetDateTimeBoxElementInUAWidget();
 }
 
 void HTMLInputElement::OpenDateTimePicker(const DateTimeValue& aInitialValue) {
@@ -2608,8 +2601,14 @@ nsresult HTMLInputElement::SetValueInternal(const nsAString& aValue,
         if (!mInputData.mState->SetValue(value, aOldValue, aFlags)) {
           return NS_ERROR_OUT_OF_MEMORY;
         }
-        if (mType == NS_FORM_INPUT_EMAIL) {
-          UpdateAllValidityStates(!mDoneCreating);
+        // If the caller won't dispatch "input" event via
+        // nsContentUtils::DispatchInputEvent(), we need to modify
+        // validationMessage value here.
+        //
+        // FIXME(emilio): eSetValue_Internal is not supposed to change state,
+        // but maybe we could run this too?
+        if (aFlags & nsTextEditorState::eSetValue_ByContent) {
+          MaybeUpdateAllValidityStates();
         }
       } else {
         free(mInputData.mValue);
@@ -2634,22 +2633,16 @@ nsresult HTMLInputElement::SetValueInternal(const nsAString& aValue,
                     mType == NS_FORM_INPUT_DATE) &&
                    !IsExperimentalMobileType(mType) &&
                    !(aFlags & nsTextEditorState::eSetValue_BySetUserInput)) {
-          if (Element* dateTimeBoxElement = GetDateTimeBoxElementInUAWidget()) {
+          if (Element* dateTimeBoxElement = GetDateTimeBoxElement()) {
             AsyncEventDispatcher* dispatcher = new AsyncEventDispatcher(
                 dateTimeBoxElement,
                 NS_LITERAL_STRING("MozDateTimeValueChanged"), CanBubble::eNo,
                 ChromeOnlyDispatch::eNo);
             dispatcher->RunDOMEventWhenSafe();
-          } else {
-            nsDateTimeControlFrame* frame = do_QueryFrame(GetPrimaryFrame());
-            if (frame) {
-              frame->OnValueChanged();
-            }
           }
         }
         if (mDoneCreating) {
-          OnValueChanged(/* aNotify = */ true,
-                         /* aWasInteractiveUserChange = */ false);
+          OnValueChanged(/* aNotify = */ true, ValueChangeKind::Internal);
         }
         // else DoneCreatingElement calls us again once mDoneCreating is true
       }
@@ -2931,18 +2924,12 @@ void HTMLInputElement::Blur(ErrorResult& aError) {
 
   if ((mType == NS_FORM_INPUT_TIME || mType == NS_FORM_INPUT_DATE) &&
       !IsExperimentalMobileType(mType)) {
-    if (Element* dateTimeBoxElement = GetDateTimeBoxElementInUAWidget()) {
+    if (Element* dateTimeBoxElement = GetDateTimeBoxElement()) {
       AsyncEventDispatcher* dispatcher = new AsyncEventDispatcher(
           dateTimeBoxElement, NS_LITERAL_STRING("MozBlurInnerTextBox"),
           CanBubble::eNo, ChromeOnlyDispatch::eNo);
       dispatcher->RunDOMEventWhenSafe();
       return;
-    } else {
-      nsDateTimeControlFrame* frame = do_QueryFrame(GetPrimaryFrame());
-      if (frame) {
-        frame->HandleBlurEvent();
-        return;
-      }
     }
   }
 
@@ -2965,18 +2952,12 @@ void HTMLInputElement::Focus(ErrorResult& aError) {
 
   if ((mType == NS_FORM_INPUT_TIME || mType == NS_FORM_INPUT_DATE) &&
       !IsExperimentalMobileType(mType)) {
-    if (Element* dateTimeBoxElement = GetDateTimeBoxElementInUAWidget()) {
+    if (Element* dateTimeBoxElement = GetDateTimeBoxElement()) {
       AsyncEventDispatcher* dispatcher = new AsyncEventDispatcher(
           dateTimeBoxElement, NS_LITERAL_STRING("MozFocusInnerTextBox"),
           CanBubble::eNo, ChromeOnlyDispatch::eNo);
       dispatcher->RunDOMEventWhenSafe();
       return;
-    } else {
-      nsDateTimeControlFrame* frame = do_QueryFrame(GetPrimaryFrame());
-      if (frame) {
-        frame->HandleFocusEvent();
-        return;
-      }
     }
   }
 
@@ -3285,16 +3266,11 @@ void HTMLInputElement::GetEventTargetParent(EventChainPreVisitor& aVisitor) {
       aVisitor.mEvent->mOriginalTarget == this) {
     // If original target is this and not the inner text control, we should
     // pass the focus to the inner text control.
-    if (Element* dateTimeBoxElement = GetDateTimeBoxElementInUAWidget()) {
+    if (Element* dateTimeBoxElement = GetDateTimeBoxElement()) {
       AsyncEventDispatcher* dispatcher = new AsyncEventDispatcher(
           dateTimeBoxElement, NS_LITERAL_STRING("MozFocusInnerTextBox"),
           CanBubble::eNo, ChromeOnlyDispatch::eNo);
       dispatcher->RunDOMEventWhenSafe();
-    } else {
-      nsDateTimeControlFrame* frame = do_QueryFrame(GetPrimaryFrame());
-      if (frame) {
-        frame->HandleFocusEvent();
-      }
     }
   }
 
@@ -4370,7 +4346,7 @@ nsresult HTMLInputElement::BindToTree(Document* aDocument, nsIContent* aParent,
   UpdateState(false);
 
   if ((mType == NS_FORM_INPUT_TIME || mType == NS_FORM_INPUT_DATE) &&
-      nsContentUtils::IsUAWidgetEnabled() && IsInComposedDoc()) {
+      IsInComposedDoc()) {
     // Construct Shadow Root so web content can be hidden in the DOM.
     AttachAndSetUAShadowRoot();
     NotifyUAWidgetSetupOrChange();
@@ -4403,7 +4379,7 @@ void HTMLInputElement::UnbindFromTree(bool aDeep, bool aNullParent) {
   }
 
   if ((mType == NS_FORM_INPUT_TIME || mType == NS_FORM_INPUT_DATE) &&
-      nsContentUtils::IsUAWidgetEnabled() && IsInComposedDoc()) {
+      IsInComposedDoc()) {
     NotifyUAWidgetTeardown();
   }
 
@@ -4582,7 +4558,7 @@ void HTMLInputElement::HandleTypeChange(uint8_t aNewType, bool aNotify) {
     dispatcher->PostDOMEvent();
   }
 
-  if (nsContentUtils::IsUAWidgetEnabled() && IsInComposedDoc()) {
+  if (IsInComposedDoc()) {
     if (oldType == NS_FORM_INPUT_TIME || oldType == NS_FORM_INPUT_DATE) {
       if (mType != NS_FORM_INPUT_TIME && mType != NS_FORM_INPUT_DATE) {
         // Switch away from date/time type.
@@ -6778,8 +6754,10 @@ HTMLInputElement::InitializeKeyboardEventListeners() {
 }
 
 NS_IMETHODIMP_(void)
-HTMLInputElement::OnValueChanged(bool aNotify, bool aWasInteractiveUserChange) {
-  mLastValueChangeWasInteractive = aWasInteractiveUserChange;
+HTMLInputElement::OnValueChanged(bool aNotify, ValueChangeKind aKind) {
+  if (aKind != ValueChangeKind::Internal) {
+    mLastValueChangeWasInteractive = aKind == ValueChangeKind::UserInteraction;
+  }
 
   UpdateAllValidityStates(aNotify);
 
@@ -6935,6 +6913,10 @@ void HTMLInputElement::SetFilePickerFiltersFromAccept(
       allMimeTypeFiltersAreValid = false;
       continue;
     }
+
+    // At this point we're sure the token represents a valid filter, so pass
+    // it directly as a raw filter.
+    filePicker->AppendRawFilter(token);
 
     // If we arrived here, that means we have a valid filter: let's create it
     // and add it to our list, if no similar filter is already present

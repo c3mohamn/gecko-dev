@@ -1,5 +1,5 @@
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var server;
 const BUGID = "331825";
@@ -31,7 +31,7 @@ function run_test() {
 
   channel.QueryInterface(Ci.nsIHttpChannel);
   channel.setRequestHeader("If-None-Match", "foobar", false);
-  channel.asyncOpen2(new TestListener());
+  channel.asyncOpen(new TestListener());
 
   do_test_pending();
 }

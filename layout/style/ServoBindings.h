@@ -29,7 +29,7 @@ class SeenPtrs;
 class ServoElementSnapshotTable;
 class SharedFontList;
 class StyleSheet;
-enum class CSSPseudoElementType : uint8_t;
+enum class PseudoStyleType : uint8_t;
 enum class OriginFlags : uint8_t;
 struct Keyframe;
 
@@ -143,9 +143,6 @@ void Servo_StyleSet_CompatModeChanged(RawServoStyleSetBorrowed raw_data);
 
 void Servo_StyleSet_AppendStyleSheet(RawServoStyleSetBorrowed set,
                                      const mozilla::StyleSheet* gecko_sheet);
-
-void Servo_StyleSet_PrependStyleSheet(RawServoStyleSetBorrowed set,
-                                      const mozilla::StyleSheet* gecko_sheet);
 
 void Servo_StyleSet_RemoveStyleSheet(RawServoStyleSetBorrowed set,
                                      const mozilla::StyleSheet* gecko_sheet);
@@ -335,7 +332,7 @@ void Servo_StyleRule_GetSelectorCount(RawServoStyleRuleBorrowed rule,
 
 bool Servo_StyleRule_SelectorMatchesElement(
     RawServoStyleRuleBorrowed, RawGeckoElementBorrowed, uint32_t index,
-    mozilla::CSSPseudoElementType pseudo_type);
+    mozilla::PseudoStyleType pseudo_type);
 
 bool Servo_StyleRule_SetSelectorText(RawServoStyleSheetContentsBorrowed sheet,
                                      RawServoStyleRuleBorrowed rule,
@@ -783,12 +780,12 @@ bool Servo_CSSSupports(const nsACString* cond);
 // Computed style data
 
 ComputedStyleStrong Servo_ComputedValues_GetForAnonymousBox(
-    ComputedStyleBorrowedOrNull parent_style_or_null, nsAtom* pseudo_tag,
+    ComputedStyleBorrowedOrNull parent_style_or_null, mozilla::PseudoStyleType,
     RawServoStyleSetBorrowed set);
 
 ComputedStyleStrong Servo_ComputedValues_Inherit(
-    RawServoStyleSetBorrowed set, nsAtom* pseudo_tag,
-    ComputedStyleBorrowedOrNull parent_style, mozilla::InheritTarget target);
+    RawServoStyleSetBorrowed, mozilla::PseudoStyleType,
+    ComputedStyleBorrowedOrNull parent_style, mozilla::InheritTarget);
 
 uint8_t Servo_ComputedValues_GetStyleBits(ComputedStyleBorrowed values);
 
@@ -825,7 +822,7 @@ ComputedStyleStrong Servo_ResolveStyle(RawGeckoElementBorrowed element,
                                        RawServoStyleSetBorrowed set);
 
 ComputedStyleStrong Servo_ResolvePseudoStyle(
-    RawGeckoElementBorrowed element, mozilla::CSSPseudoElementType pseudo_type,
+    RawGeckoElementBorrowed element, mozilla::PseudoStyleType pseudo_type,
     bool is_probe, ComputedStyleBorrowedOrNull inherited_style,
     RawServoStyleSetBorrowed set);
 
@@ -839,7 +836,7 @@ void Servo_SetExplicitStyle(RawGeckoElementBorrowed element,
 
 bool Servo_HasAuthorSpecifiedRules(ComputedStyleBorrowed style,
                                    RawGeckoElementBorrowed element,
-                                   mozilla::CSSPseudoElementType pseudo_type,
+                                   mozilla::PseudoStyleType pseudo_type,
                                    uint32_t rule_type_mask,
                                    bool author_colors_allowed);
 
@@ -853,7 +850,7 @@ bool Servo_HasAuthorSpecifiedRules(ComputedStyleBorrowed style,
 // performed, and this function maintains that invariant.
 
 ComputedStyleStrong Servo_ResolveStyleLazily(
-    RawGeckoElementBorrowed element, mozilla::CSSPseudoElementType pseudo_type,
+    RawGeckoElementBorrowed element, mozilla::PseudoStyleType pseudo_type,
     mozilla::StyleRuleInclusion rule_inclusion,
     const mozilla::ServoElementSnapshotTable* snapshots,
     RawServoStyleSetBorrowed set);
@@ -936,11 +933,12 @@ bool Servo_ComputeColor(RawServoStyleSetBorrowedOrNull set,
                         nscolor* result_color, bool* was_current_color,
                         mozilla::css::Loader* loader);
 
-bool Servo_IntersectionObserverRootMargin_Parse(const nsAString* value,
-                                                nsStyleSides* result);
+bool Servo_IntersectionObserverRootMargin_Parse(
+    const nsAString* value,
+    mozilla::StyleIntersectionObserverRootMargin* result);
 
-void Servo_IntersectionObserverRootMargin_ToString(const nsStyleSides* rect,
-                                                   nsAString* result);
+void Servo_IntersectionObserverRootMargin_ToString(
+    const mozilla::StyleIntersectionObserverRootMargin*, nsAString* result);
 
 // Returning false means the parsed transform contains relative lengths or
 // percentage value, so we cannot compute the matrix. In this case, we keep

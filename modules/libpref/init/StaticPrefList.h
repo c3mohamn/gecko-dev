@@ -244,6 +244,21 @@ VARCACHE_PREF(
   RelaxedAtomicBool, true
 )
 
+// Should we defer timeouts and intervals while loading a page.  Released
+// on Idle or when the page is loaded.
+VARCACHE_PREF(
+  "dom.timeout.defer_during_load",
+  dom_timeout_defer_during_load,
+  bool, true
+)
+
+// Maximum deferral time for setTimeout/Interval in milliseconds
+VARCACHE_PREF(
+  "dom.timeout.max_idle_defer_ms",
+  dom_timeout_max_idle_defer_ms,
+  uint32_t, 10*1000
+)
+
 VARCACHE_PREF(
   "dom.performance.children_results_ipc_timeout",
   dom_performance_children_results_ipc_timeout,
@@ -419,6 +434,12 @@ VARCACHE_PREF(
    dom_script_loader_binast_encoding_enabled,
   RelaxedAtomicBool, false
 )
+
+VARCACHE_PREF(
+  "dom.script_loader.binast_encoding.domain.restrict",
+   dom_script_loader_binast_encoding_domain_restrict,
+  bool, true
+)
 #endif
 
 // IMPORTANT: Keep this in condition in sync with all.js. The value
@@ -450,6 +471,21 @@ VARCACHE_PREF(
   RelaxedAtomicBool, false
 )
 
+// Block multiple external protocol URLs in iframes per single event.
+VARCACHE_PREF(
+  "dom.block_external_protocol_in_iframes",
+   dom_block_external_protocol_in_iframes,
+  bool, true
+)
+
+// Any how many seconds we allow external protocol URLs in iframe when not in
+// single events
+VARCACHE_PREF(
+  "dom.delay.block_external_protocol_in_iframes",
+   dom_delay_block_external_protocol_in_iframes,
+  uint32_t, 10 // in seconds
+)
+
 // Block multiple window.open() per single event.
 VARCACHE_PREF(
   "dom.block_multiple_popups",
@@ -459,17 +495,11 @@ VARCACHE_PREF(
 
 // For area and anchor elements with target=_blank and no rel set to
 // opener/noopener, this pref sets noopener by default.
-#ifdef EARLY_BETA_OR_EARLIER
-#define PREF_VALUE true
-#else
-#define PREF_VALUE false
-#endif
 VARCACHE_PREF(
   "dom.targetBlankNoOpener.enabled",
    dom_targetBlankNoOpener_enabled,
-  bool, PREF_VALUE
+  bool, true
 )
-#undef PREF_VALUE
 
 VARCACHE_PREF(
   "dom.disable_open_during_load",
@@ -495,6 +525,16 @@ VARCACHE_PREF(
 )
 
 //---------------------------------------------------------------------------
+// Extension prefs
+//---------------------------------------------------------------------------
+
+VARCACHE_PREF(
+  "extensions.allowPrivateBrowsingByDefault",
+   extensions_allowPrivateBrowsingByDefault,
+  bool, true
+)
+
+//---------------------------------------------------------------------------
 // Full-screen prefs
 //---------------------------------------------------------------------------
 
@@ -507,6 +547,14 @@ VARCACHE_PREF(
 //---------------------------------------------------------------------------
 // Graphics prefs
 //---------------------------------------------------------------------------
+
+// In theory: 0 = never, 1 = quick, 2 = always, though we always just use it as
+// a bool!
+VARCACHE_PREF(
+  "browser.display.use_document_fonts",
+   browser_display_use_document_fonts,
+  RelaxedAtomicInt32, 1
+)
 
 VARCACHE_PREF(
   "gfx.font_rendering.opentype_svg.enabled",
@@ -555,7 +603,7 @@ VARCACHE_PREF(
 VARCACHE_PREF(
   "html5.flushtimer.initialdelay",
    html5_flushtimer_initialdelay,
-  RelaxedAtomicInt32, 120
+  RelaxedAtomicInt32, 16
 )
 
 // Time in milliseconds between the time a network buffer is seen and the timer
@@ -563,12 +611,27 @@ VARCACHE_PREF(
 VARCACHE_PREF(
   "html5.flushtimer.subsequentdelay",
    html5_flushtimer_subsequentdelay,
-  RelaxedAtomicInt32, 120
+  RelaxedAtomicInt32, 16
 )
 
 //---------------------------------------------------------------------------
 // Layout prefs
 //---------------------------------------------------------------------------
+
+// Whether to block large cursors intersecting UI.
+VARCACHE_PREF(
+  "layout.cursor.block.enabled",
+   layout_cursor_block_enabled,
+  bool, true
+)
+
+// The maximum width or height of the cursor we should allow when intersecting
+// the UI, in CSS pixels.
+VARCACHE_PREF(
+  "layout.cursor.block.max-size",
+   layout_cursor_block_max_size,
+  uint32_t, 64
+)
 
 // Debug-only pref to force enable the AccessibleCaret. If you want to
 // control AccessibleCaret by mouse, you'll need to set
@@ -841,13 +904,6 @@ VARCACHE_PREF(
   bool, false
 )
 
-// Is overflow: -moz-scrollbars-* value enabled?
-VARCACHE_PREF(
-  "layout.css.overflow.moz-scrollbars.enabled",
-   layout_css_overflow_moz_scrollbars_enabled,
-  bool, false
-)
-
 // Does arbitrary ::-webkit-* pseudo-element parsed?
 VARCACHE_PREF(
   "layout.css.unknown-webkit-pseudo-element",
@@ -883,23 +939,30 @@ VARCACHE_PREF(
   bool, true
 )
 
+VARCACHE_PREF(
+   "layout.lower_priority_refresh_driver_during_load",
+   layout_lower_priority_refresh_driver_during_load,
+  bool, true
+)
+
 // Pref to control enabling scroll anchoring.
-#ifdef NIGHTLY_BUILD
-#define PREF_VALUE true
-#else
-#define PREF_VALUE false
-#endif
 VARCACHE_PREF(
   "layout.css.scroll-anchoring.enabled",
    layout_css_scroll_anchoring_enabled,
-  bool, PREF_VALUE
+  bool, true
 )
-#undef PREF_VALUE
 
 VARCACHE_PREF(
   "layout.css.scroll-anchoring.highlight",
    layout_css_scroll_anchoring_highlight,
   bool, false
+)
+
+// Is the CSS Scroll Snap Module Level 1 enabled?
+VARCACHE_PREF(
+  "layout.css.scroll-snap-v1.enabled",
+   layout_css_scroll_snap_v1_enabled,
+  RelaxedAtomicBool, false
 )
 
 //---------------------------------------------------------------------------
@@ -964,14 +1027,12 @@ VARCACHE_PREF(
   RelaxedAtomicBool, false
 )
 
-#ifdef ENABLE_BIGINT
 // BigInt API
 VARCACHE_PREF(
   "javascript.options.bigint",
    javascript_options_bigint,
   RelaxedAtomicBool, false
 )
-#endif
 
 
 //---------------------------------------------------------------------------
@@ -1141,6 +1202,8 @@ VARCACHE_PREF(
 
 #if defined(XP_WIN) && !defined(_ARM64_)
 # define PREF_VALUE true
+#elif defined(XP_MACOSX)
+# define PREF_VALUE true
 #else
 # define PREF_VALUE false
 #endif
@@ -1155,6 +1218,12 @@ VARCACHE_PREF(
   "media.rdd-process.startup_timeout_ms",
    MediaRddProcessStartupTimeoutMs,
   RelaxedAtomicInt32, 5000
+)
+
+VARCACHE_PREF(
+  "media.rdd-vorbis.enabled",
+   MediaRddVorbisEnabled,
+  RelaxedAtomicBool, false
 )
 
 #ifdef ANDROID
@@ -1462,6 +1531,8 @@ VARCACHE_PREF(
 // AV1
 #if defined(XP_WIN) && !defined(_ARM64_)
 # define PREF_VALUE true
+#elif defined(XP_MACOSX)
+# define PREF_VALUE true
 #else
 # define PREF_VALUE false
 #endif
@@ -1596,6 +1667,18 @@ VARCACHE_PREF(
   "media.test.video-suspend",
    MediaTestVideoSuspend,
   RelaxedAtomicBool, false
+)
+
+VARCACHE_PREF(
+  "media.autoplay.allow-muted",
+   MediaAutoplayAllowMuted,
+  RelaxedAtomicBool, true
+)
+
+VARCACHE_PREF(
+  "media.autoplay.blackList-override-default",
+   MediaAutoplayBlackListOverrideDefault,
+  RelaxedAtomicBool, true
 )
 
 //---------------------------------------------------------------------------
@@ -1766,6 +1849,16 @@ VARCACHE_PREF(
 )
 
 //---------------------------------------------------------------------------
+// ContentSessionStore prefs
+//---------------------------------------------------------------------------
+// Maximum number of bytes of DOMSessionStorage data we collect per origin.
+VARCACHE_PREF(
+  "browser.sessionstore.dom_storage_limit",
+  browser_sessionstore_dom_storage_limit,
+  uint32_t, 2048
+)
+
+//---------------------------------------------------------------------------
 // Preferences prefs
 //---------------------------------------------------------------------------
 
@@ -1804,11 +1897,7 @@ VARCACHE_PREF(
 )
 
 // Block 3rd party fingerprinting resources.
-#ifdef NIGHTLY_BUILD
-# define PREF_VALUE true
-#else
 # define PREF_VALUE false
-#endif
 VARCACHE_PREF(
   "privacy.trackingprotection.fingerprinting.enabled",
    privacy_trackingprotection_fingerprinting_enabled,
@@ -1817,11 +1906,7 @@ VARCACHE_PREF(
 #undef PREF_VALUE
 
 // Block 3rd party cryptomining resources.
-#ifdef NIGHTLY_BUILD
-# define PREF_VALUE true
-#else
 # define PREF_VALUE false
-#endif
 VARCACHE_PREF(
   "privacy.trackingprotection.cryptomining.enabled",
    privacy_trackingprotection_cryptomining_enabled,
@@ -1884,6 +1969,34 @@ VARCACHE_PREF(
   "browser.safebrowsing.passwords.enabled",
    browser_safebrowsing_passwords_enabled,
   bool, false
+)
+
+// Malware protection
+VARCACHE_PREF(
+  "browser.safebrowsing.malware.enabled",
+   browser_safebrowsing_malware_enabled,
+  bool, true
+)
+
+// Phishing protection
+VARCACHE_PREF(
+  "browser.safebrowsing.phishing.enabled",
+   browser_safebrowsing_phishing_enabled,
+  bool, true
+)
+
+// Blocked plugin content
+VARCACHE_PREF(
+  "browser.safebrowsing.blockedURIs.enabled",
+   browser_safebrowsing_blockedURIs_enabled,
+  bool, true
+)
+
+// Prevent system colors from being exposed to CSS or canvas.
+VARCACHE_PREF(
+  "ui.use_standins_for_native_colors",
+   ui_use_standins_for_native_colors,
+   RelaxedAtomicBool, false
 )
 
 //---------------------------------------------------------------------------

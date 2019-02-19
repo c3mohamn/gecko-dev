@@ -4,10 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-ChromeUtils.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
-ChromeUtils.import("resource://gre/modules/BrowserUtils.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+var {PrivateBrowsingUtils} = ChromeUtils.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
+var {BrowserUtils} = ChromeUtils.import("resource://gre/modules/BrowserUtils.jsm");
+var {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+var {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   SpellCheckHelper: "resource://gre/modules/InlineSpellChecker.jsm",
@@ -225,6 +225,8 @@ nsContextMenu.prototype = {
     this.frameOuterWindowID = context.frameOuterWindowID;
 
     this.inSyntheticDoc = context.inSyntheticDoc;
+    this.inAboutDevtoolsToolbox = context.inAboutDevtoolsToolbox;
+
 
     // Everything after this isn't sent directly from ContextMenu
     this.ownerDoc = this.target.ownerDocument;
@@ -423,14 +425,14 @@ nsContextMenu.prototype = {
   initViewItems: function CM_initViewItems() {
     // View source is always OK, unless in directory listing.
     this.showItem("context-viewpartialsource-selection",
-                  this.isContentSelected);
+                  !this.inAboutDevtoolsToolbox && this.isContentSelected);
 
     var shouldShow = !(this.isContentSelected ||
                        this.onImage || this.onCanvas ||
                        this.onVideo || this.onAudio ||
                        this.onLink || this.onTextInput);
 
-    var showInspect = this.inTabBrowser &&
+    var showInspect = this.inTabBrowser && !this.inAboutDevtoolsToolbox &&
                       Services.prefs.getBoolPref("devtools.inspector.enabled", true) &&
                       !Services.prefs.getBoolPref("devtools.policy.disabled", false);
 
@@ -518,7 +520,8 @@ nsContextMenu.prototype = {
                   this.onTextInput && this.onKeywordField);
     this.showItem("frame", this.inFrame);
 
-    let showSearchSelect = (this.isTextSelected || this.onLink) && !this.onImage;
+    let showSearchSelect = !this.inAboutDevtoolsToolbox &&
+                           (this.isTextSelected || this.onLink) && !this.onImage;
     this.showItem("context-searchselect", showSearchSelect);
     if (showSearchSelect) {
       this.formatSearchContextItem();
@@ -619,7 +622,8 @@ nsContextMenu.prototype = {
                                          this.onVideo || this.onAudio ||
                                          this.inSyntheticDoc) ||
                                        this.isDesignMode);
-    this.showItem("context-sep-selectall", this.isContentSelected );
+    this.showItem("context-sep-selectall",
+                  !this.inAboutDevtoolsToolbox && this.isContentSelected);
 
     // XXX dr
     // ------
@@ -661,6 +665,12 @@ nsContextMenu.prototype = {
     this.showItem("context-media-showcontrols", onMedia && !this.target.controls);
     this.showItem("context-media-hidecontrols", this.target.controls && (this.onVideo || (this.onAudio && !this.inSyntheticDoc)));
     this.showItem("context-video-fullscreen", this.onVideo && !this.target.ownerDocument.fullscreen);
+    if (AppConstants.NIGHTLY_BUILD) {
+      let shouldDisplay = Services.prefs.getBoolPref("media.videocontrols.picture-in-picture.enabled") &&
+                          this.onVideo &&
+                          !this.target.ownerDocument.fullscreen;
+      this.showItem("context-video-pictureinpicture", shouldDisplay);
+    }
     this.showItem("context-media-eme-learnmore", this.onDRMMedia);
     this.showItem("context-media-eme-separator", this.onDRMMedia);
 
@@ -1096,7 +1106,6 @@ nsContextMenu.prototype = {
       extListener: null,
 
       onStartRequest: function saveLinkAs_onStartRequest(aRequest, aContext) {
-
         // if the timer fired, the error status will have been caused by that,
         // and we'll be restarting in onStopRequest, so no reason to notify
         // the user
@@ -1216,7 +1225,7 @@ nsContextMenu.prototype = {
                            timer.TYPE_ONE_SHOT);
 
     // kick off the channel with our proxy object as the listener
-    channel.asyncOpen2(new saveAsListener());
+    channel.asyncOpen(new saveAsListener());
   },
 
   // Save URL of clicked-on link.

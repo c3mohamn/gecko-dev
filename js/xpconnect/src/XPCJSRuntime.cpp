@@ -69,7 +69,7 @@
 #include "nsJSPrincipals.h"
 
 #ifdef XP_WIN
-#include <windows.h>
+#  include <windows.h>
 #endif
 
 using namespace mozilla;
@@ -156,7 +156,8 @@ class AsyncFreeSnowWhite : public Runnable {
 
   nsresult Dispatch() {
     nsCOMPtr<nsIRunnable> self(this);
-    return NS_IdleDispatchToCurrentThread(self.forget(), 500);
+    return NS_DispatchToCurrentThreadQueue(self.forget(), 500,
+                                           EventQueuePriority::Idle);
   }
 
   void Start(bool aContinuation = false, bool aPurge = false) {
@@ -200,7 +201,6 @@ CompartmentPrivate::CompartmentPrivate(JS::Compartment* c,
       wasShutdown(false),
       mWrappedJSMap(JSObject2WrappedJSMap::newMap(XPC_JS_MAP_LENGTH)) {
   MOZ_COUNT_CTOR(xpc::CompartmentPrivate);
-  mozilla::PodArrayZero(wrapperDenialWarnings);
 }
 
 CompartmentPrivate::~CompartmentPrivate() {
@@ -217,7 +217,9 @@ void CompartmentPrivate::SystemIsBeingShutDown() {
   }
 }
 
-RealmPrivate::RealmPrivate(JS::Realm* realm) : scriptability(realm) {}
+RealmPrivate::RealmPrivate(JS::Realm* realm) : scriptability(realm) {
+  mozilla::PodArrayZero(wrapperDenialWarnings);
+}
 
 /* static */ void RealmPrivate::Init(HandleObject aGlobal,
                                      const SiteIdentifier& aSite) {
@@ -633,6 +635,17 @@ void SetCompartmentChangedDocumentDomain(JS::Compartment* compartment) {
 
 JSObject* UnprivilegedJunkScope() {
   return XPCJSRuntime::Get()->UnprivilegedJunkScope();
+}
+
+JSObject* NACScope(JSObject* global) {
+  // If we're a chrome global, just use ourselves.
+  if (AccessCheck::isChrome(global)) {
+    return global;
+  }
+
+  JSObject* scope = UnprivilegedJunkScope();
+  JS::ExposeObjectToActiveJS(scope);
+  return scope;
 }
 
 JSObject* PrivilegedJunkScope() { return XPCJSRuntime::Get()->LoaderGlobal(); }
@@ -2249,7 +2262,7 @@ class XPCJSRuntimeStats : public JS::RuntimeStats {
       RootedObject global(cx, JS::GetRealmGlobalOrNull(realm));
       if (global) {
         RefPtr<nsGlobalWindowInner> window;
-        if (NS_SUCCEEDED(UNWRAP_OBJECT(Window, global, window))) {
+        if (NS_SUCCEEDED(UNWRAP_NON_WRAPPER_OBJECT(Window, global, window))) {
           // The global is a |window| object.  Use the path prefix that
           // we should have already created for it.
           if (mTopWindowPaths->Get(window->WindowID(), &extras->pathPrefix))
@@ -2277,7 +2290,7 @@ class XPCJSRuntimeStats : public JS::RuntimeStats {
     RootedObject global(cx, JS::GetRealmGlobalOrNull(realm));
     if (global) {
       RefPtr<nsGlobalWindowInner> window;
-      if (NS_SUCCEEDED(UNWRAP_OBJECT(Window, global, window))) {
+      if (NS_SUCCEEDED(UNWRAP_NON_WRAPPER_OBJECT(Window, global, window))) {
         // The global is a |window| object.  Use the path prefix that
         // we should have already created for it.
         if (mWindowPaths->Get(window->WindowID(), &extras->jsPathPrefix)) {
@@ -2741,6 +2754,9 @@ static void AccumulateTelemetryCallback(int id, uint32_t sample,
     case JS_TELEMETRY_GC_MARK_RATE:
       Telemetry::Accumulate(Telemetry::GC_MARK_RATE, sample);
       break;
+    case JS_TELEMETRY_DEPRECATED_STRING_GENERICS:
+      Telemetry::Accumulate(Telemetry::JS_DEPRECATED_STRING_GENERICS, sample);
+      break;
     default:
       MOZ_ASSERT_UNREACHABLE("Unexpected JS_TELEMETRY id");
   }
@@ -2827,7 +2843,7 @@ static nsresult ReadSourceFromFilename(JSContext* cx, const char* filename,
   scriptChannel->SetContentType(NS_LITERAL_CSTRING("text/plain"));
 
   nsCOMPtr<nsIInputStream> scriptStream;
-  rv = scriptChannel->Open2(getter_AddRefs(scriptStream));
+  rv = scriptChannel->Open(getter_AddRefs(scriptStream));
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint64_t rawLen;

@@ -15,7 +15,7 @@
 #include "ThreadSafeRefcountingWithMainThreadDestruction.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/MozPromise.h"
-#include "mozilla/Mutex.h"
+#include "mozilla/DataMutex.h"
 #include "mozilla/webrender/webrender_ffi.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/webrender/WebRenderTypes.h"
@@ -185,7 +185,7 @@ class RenderThread final {
   /// Can be called from any thread.
   void UnregisterExternalImage(uint64_t aExternalImageId);
 
-  /// Can be called from any thread.
+  /// Can only be called from the render thread.
   void UpdateRenderTextureHost(uint64_t aSrcExternalImageId,
                                uint64_t aWrappedExternalImageId);
 
@@ -272,8 +272,7 @@ class RenderThread final {
     bool mHadSlowFrame = false;
   };
 
-  Mutex mFrameCountMapLock;
-  std::unordered_map<uint64_t, WindowInfo*> mWindowInfos;
+  DataMutex<std::unordered_map<uint64_t, WindowInfo*>> mWindowInfos;
 
   Mutex mRenderTextureMapLock;
   std::unordered_map<uint64_t, RefPtr<RenderTextureHost>> mRenderTextures;

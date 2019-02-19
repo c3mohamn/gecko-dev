@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /** * =================== SAVED SIGNONS CODE =================== ***/
-ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+var {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
+var {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 ChromeUtils.defineModuleGetter(this, "DeferredTask",
                                "resource://gre/modules/DeferredTask.jsm");
@@ -31,6 +30,7 @@ let signonsIntro;
 let removeButton;
 let removeAllButton;
 let signonsTree;
+let autofillCheckbox;
 
 let signonReloadDisplay = {
   observe(subject, topic, data) {
@@ -49,7 +49,7 @@ let signonReloadDisplay = {
           if (filterField && filterField.value != "") {
             FilterPasswords();
           }
-          signonsTree.treeBoxObject.ensureRowIsVisible(signonsTree.view.selection.currentIndex);
+          signonsTree.ensureRowIsVisible(signonsTree.view.selection.currentIndex);
           break;
       }
       Services.obs.notifyObservers(null, "passwordmgr-dialog-updated");
@@ -73,12 +73,15 @@ function Startup() {
   filterField = document.getElementById("filter");
   togglePasswordsButton = document.getElementById("togglePasswords");
   signonsIntro = document.getElementById("signonsIntro");
+  autofillCheckbox = document.getElementById("passwordAutofillCheckbox");
   removeButton = document.getElementById("removeSignon");
   removeAllButton = document.getElementById("removeAllSignons");
 
   togglePasswordsButton.label = kSignonBundle.getString("showPasswords");
   togglePasswordsButton.accessKey = kSignonBundle.getString("showPasswordsAccessKey");
   signonsIntro.textContent = kSignonBundle.getString("loginsDescriptionAll2");
+  autofillCheckbox.label = kSignonBundle.getString("autofillLoginsAndPasswords");
+  autofillCheckbox.checked = Services.prefs.getBoolPref("signon.autofillForms");
   removeAllButton.setAttribute("label", kSignonBundle.getString("removeAll.label"));
   removeAllButton.setAttribute("accesskey", kSignonBundle.getString("removeAll.accesskey"));
   document.getElementsByTagName("treecols")[0].addEventListener("click", (event) => {
@@ -108,6 +111,10 @@ function Startup() {
   }
 
   FocusFilterBox();
+}
+
+function watchLoginAutofill() {
+  Services.prefs.setBoolPref("signon.autofillForms", autofillCheckbox.checked);
 }
 
 function Shutdown() {
@@ -202,12 +209,11 @@ let signonsTreeView = {
       table[row][field] = value;
       table[row].timePasswordChanged = Date.now();
       Services.logins.modifyLogin(existingLogin, table[row]);
-      signonsTree.treeBoxObject.invalidateRow(row);
+      signonsTree.invalidateRow(row);
     }
 
     if (col.id == "userCol") {
       _editLogin("username");
-
     } else if (col.id == "passwordCol") {
       if (!value) {
         return;
@@ -277,9 +283,9 @@ function SortTree(column, ascending) {
   }
 
   // display the results
-  signonsTree.treeBoxObject.invalidate();
+  signonsTree.invalidate();
   if (selectedRow >= 0) {
-    signonsTree.treeBoxObject.ensureRowIsVisible(selectedRow);
+    signonsTree.ensureRowIsVisible(selectedRow);
   }
 }
 
@@ -371,7 +377,7 @@ function DeleteSignon() {
       }
       table.splice(j, k - j);
       view.rowCount -= k - j;
-      tree.treeBoxObject.rowCountChanged(j, j - k);
+      tree.rowCountChanged(j, j - k);
     }
   }
 
@@ -416,9 +422,8 @@ function DeleteAllSignons() {
   // update the tree view and notify the tree
   view.rowCount = 0;
 
-  let box = signonsTree.treeBoxObject;
-  box.rowCountChanged(0, -deletedSignons.length);
-  box.invalidate();
+  signonsTree.rowCountChanged(0, -deletedSignons.length);
+  signonsTree.invalidate();
 
   // disable buttons
   removeButton.setAttribute("disabled", "true");
@@ -530,7 +535,7 @@ function SignonClearFilter() {
 
   // Clear the Tree Display
   signonsTreeView.rowCount = 0;
-  signonsTree.treeBoxObject.rowCountChanged(0, -signonsTreeView._filterSet.length);
+  signonsTree.rowCountChanged(0, -signonsTreeView._filterSet.length);
   signonsTreeView._filterSet = [];
 
   // Just reload the list to make sure deletions are respected
@@ -613,10 +618,10 @@ function FilterPasswords() {
   // Clear the display
   let oldRowCount = signonsTreeView.rowCount;
   signonsTreeView.rowCount = 0;
-  signonsTree.treeBoxObject.rowCountChanged(0, -oldRowCount);
+  signonsTree.rowCountChanged(0, -oldRowCount);
   // Set up the filtered display
   signonsTreeView.rowCount = signonsTreeView._filterSet.length;
-  signonsTree.treeBoxObject.rowCountChanged(0, signonsTreeView.rowCount);
+  signonsTree.rowCountChanged(0, signonsTreeView.rowCount);
 
   // if the view is not empty then select the first item
   if (signonsTreeView.rowCount > 0) {
@@ -753,7 +758,7 @@ function escapeKeyHandler() {
 }
 
 function OpenMigrator() {
-  const { MigrationUtils } = ChromeUtils.import("resource:///modules/MigrationUtils.jsm", {});
+  const { MigrationUtils } = ChromeUtils.import("resource:///modules/MigrationUtils.jsm");
   // We pass in the type of source we're using for use in telemetry:
   MigrationUtils.showMigrationWizard(window, [MigrationUtils.MIGRATION_ENTRYPOINT_PASSWORDS]);
 }

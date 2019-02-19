@@ -1,7 +1,7 @@
 
 var CC = Components.Constructor;
 
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 const ServerSocket = CC("@mozilla.org/network/server-socket;1",
                         "nsIServerSocket",
@@ -92,7 +92,7 @@ add_test(function testNoConnectChannelCanceledEarly() {
     uri:"http://localhost:" + serv.port,
     loadUsingSystemPrincipal: true
   });
-  chan.asyncOpen2(listener);
+  chan.asyncOpen(listener);
 
   registerCleanupFunction(function(){ serv.stop(); });
 });

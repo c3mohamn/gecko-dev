@@ -39,8 +39,8 @@
 #define MINIMUM_TILE_COPY_AREA (1.f / 16.f)
 
 #ifdef GFX_TILEDLAYER_DEBUG_OVERLAY
-#include "cairo.h"
-#include <sstream>
+#  include "cairo.h"
+#  include <sstream>
 using mozilla::layers::Layer;
 static void DrawDebugOverlay(mozilla::gfx::DrawTarget* dt, int x, int y,
                              int width, int height) {
@@ -578,6 +578,7 @@ Maybe<AcquiredBackBuffer> TileClient::AcquireBackBuffer(
     CompositableClient& aCompositable, const nsIntRegion& aDirtyRegion,
     const nsIntRegion& aVisibleRegion, gfxContentType aContent,
     SurfaceMode aMode, TilePaintFlags aFlags) {
+  AUTO_PROFILER_LABEL("TileClient::AcquireBackBuffer", GRAPHICS_TileAllocation);
   if (!mAllocator) {
     gfxCriticalError() << "[TileClient] Missing TextureClientAllocator.";
     return Nothing();

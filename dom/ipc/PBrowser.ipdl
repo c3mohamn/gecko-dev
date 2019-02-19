@@ -19,6 +19,7 @@ include protocol PFileDescriptorSet;
 include protocol PIPCBlobInputStream;
 include protocol PPaymentRequest;
 include protocol PWindowGlobal;
+include protocol PRemoteFrame;
 
 include DOMTypes;
 include IPCBlob;
@@ -87,7 +88,7 @@ using class mozilla::NativeEventData from "ipc/nsGUIEventIPC.h";
 using mozilla::FontRange from "ipc/nsGUIEventIPC.h";
 using mozilla::a11y::IAccessibleHolder from "mozilla/a11y/IPCTypes.h";
 using mozilla::OriginAttributes from "mozilla/ipc/BackgroundUtils.h";
-using mozilla::dom::BrowsingContextId from "mozilla/dom/ipc/IdType.h";
+using refcounted class mozilla::dom::BrowsingContext from "mozilla/dom/BrowsingContext.h";
 
 namespace mozilla {
 namespace dom {
@@ -102,6 +103,27 @@ struct ShowInfo
   float dpi;
   int32_t widgetRounding;
   double defaultScale;
+};
+
+struct WebProgressData
+{
+  bool isTopLevel;
+  bool isLoadingDocument;
+  uint32_t loadType;
+  uint64_t DOMWindowID;
+};
+
+union OptionalWebProgressData
+{
+  void_t;
+  WebProgressData;
+};
+
+struct RequestData
+{
+  nsIURI requestURI;
+  nsIURI originalRequestURI;
+  nsCString matchedList;
 };
 
 union OptionalShmem
@@ -121,6 +143,7 @@ nested(upto inside_cpow) sync protocol PBrowser
     manages PPluginWidget;
     manages PPaymentRequest;
     manages PWindowGlobal;
+    manages PRemoteFrame;
 
 both:
     async AsyncMessage(nsString aMessage, CpowEntry[] aCpows,
@@ -152,6 +175,11 @@ parent:
      * BrowsingContext and with the given principal.
      */
     async PWindowGlobal(WindowGlobalInit init);
+
+    /**
+     * Construct a new Remote iframe actor.
+     */
+    async PRemoteFrame(nsString aPresentationURL, nsString aRemoteType);
 
     /**
      * Sends an NS_NATIVE_CHILD_OF_SHAREABLE_WINDOW to be adopted by the
@@ -365,15 +393,10 @@ parent:
      * Set the native cursor.
      * @param value
      *   The widget cursor to set.
-     * @param force
-     *   Invalidate any locally cached cursor settings and force an
-     *   update.
-     */
-    async SetCursor(nsCursor value, bool force);
-
-    /**
-     * Set the native cursor using a custom image.
-     * @param cursorData
+     * @param hasCustomCursor
+     *   Whether there's any custom cursor represented by cursorData and
+     *   company.
+     * @param customCursorData
      *   Serialized image data.
      * @param width
      *   Width of the image.
@@ -391,9 +414,12 @@ parent:
      *   Invalidate any locally cached cursor settings and force an
      *   update.
      */
-    async SetCustomCursor(nsCString cursorData, uint32_t width, uint32_t height,
-                          uint32_t stride, SurfaceFormat format,
-                          uint32_t hotspotX, uint32_t hotspotY, bool force);
+    async SetCursor(nsCursor value,
+                    bool hasCustomCursor,
+                    nsCString customCursorData,
+                    uint32_t width, uint32_t height,
+                    uint32_t stride, SurfaceFormat format,
+                    uint32_t hotspotX, uint32_t hotspotY, bool force);
 
     /**
      * Used to set the current text of the status tooltip.
@@ -524,6 +550,9 @@ parent:
     async RegisterProtocolHandler(nsString scheme, nsIURI handlerURI, nsString title,
                                   nsIURI documentURI);
 
+    async OnContentBlockingEvent(OptionalWebProgressData aWebProgressData,
+                                 RequestData aRequestData, uint32_t aEvent);
+
 child:
     async NativeSynthesisResponse(uint64_t aObserverId, nsCString aResponse);
 
@@ -592,7 +621,7 @@ parent:
     sync SetPrefersReducedMotionOverrideForTest(bool aValue);
     sync ResetPrefersReducedMotionOverrideForTest();
 
-    async RootBrowsingContext(BrowsingContextId aId);
+    async RootBrowsingContext(BrowsingContext aContext);
 
 child:
     /**
@@ -903,7 +932,7 @@ child:
     /**
      * Requests the content blocking log, which is sent back in response.
      */
-    async GetContentBlockingLog() returns(nsString log, bool success);
+    async GetContentBlockingLog() returns(nsCString log, bool success);
 
 parent:
     /** Records a history visit. */

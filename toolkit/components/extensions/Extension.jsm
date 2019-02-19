@@ -32,8 +32,8 @@ var EXPORTED_SYMBOLS = ["Dictionary", "Extension", "ExtensionData", "Langpack"];
  * to run in the same process of the existing addon debugging browser element).
  */
 
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   AddonManager: "resource://gre/modules/AddonManager.jsm",
@@ -46,7 +46,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ExtensionStorage: "resource://gre/modules/ExtensionStorage.jsm",
   ExtensionStorageIDB: "resource://gre/modules/ExtensionStorageIDB.jsm",
   ExtensionTelemetry: "resource://gre/modules/ExtensionTelemetry.jsm",
-  ExtensionTestCommon: "resource://testing-common/ExtensionTestCommon.jsm",
   FileSource: "resource://gre/modules/L10nRegistry.jsm",
   L10nRegistry: "resource://gre/modules/L10nRegistry.jsm",
   Log: "resource://gre/modules/Log.jsm",
@@ -72,9 +71,9 @@ XPCOMUtils.defineLazyGetter(
   () => Services.io.getProtocolHandler("resource")
           .QueryInterface(Ci.nsIResProtocolHandler));
 
-ChromeUtils.import("resource://gre/modules/ExtensionCommon.jsm");
-ChromeUtils.import("resource://gre/modules/ExtensionParent.jsm");
-ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
+const {ExtensionCommon} = ChromeUtils.import("resource://gre/modules/ExtensionCommon.jsm");
+const {ExtensionParent} = ChromeUtils.import("resource://gre/modules/ExtensionParent.jsm");
+const {ExtensionUtils} = ChromeUtils.import("resource://gre/modules/ExtensionUtils.jsm");
 
 XPCOMUtils.defineLazyServiceGetters(this, {
   aomStartup: ["@mozilla.org/addons/addon-manager-startup;1", "amIAddonManagerStartup"],
@@ -83,6 +82,10 @@ XPCOMUtils.defineLazyServiceGetters(this, {
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(this, "processCount", "dom.ipc.processCount.extension");
+
+// Temporary pref to be turned on when ready.
+XPCOMUtils.defineLazyPreferenceGetter(this, "allowPrivateBrowsingByDefault",
+                                      "extensions.allowPrivateBrowsingByDefault", true);
 
 var {
   GlobalManager,
@@ -127,6 +130,7 @@ const CHILD_SHUTDOWN_TIMEOUT_MS = 8000;
  *          "api" to indicate this is an api permission
  *                (as used for webextensions experiments).
  *          "permission" to indicate this is a regular permission.
+ *          "invalid" to indicate that the given permission cannot be used.
  */
 function classifyPermission(perm, restrictSchemes) {
   let match = /^(\w+)(?:\.(\w+)(?:\.\w+)*)?$/.exec(perm);
@@ -135,10 +139,12 @@ function classifyPermission(perm, restrictSchemes) {
       let {pattern} = new MatchPattern(perm, {restrictSchemes, ignorePath: true});
       return {origin: pattern};
     } catch (e) {
-      return {originInvalid: perm};
+      return {invalid: perm};
     }
   } else if (match[1] == "experiments" && match[2]) {
     return {api: match[2]};
+  } else if (perm === "mozillaAddons" && restrictSchemes) {
+    return {invalid: perm};
   }
   return {permission: perm};
 }
@@ -271,6 +277,8 @@ var UninstallObserver = {
       Services.perms.removeFromPrincipal(principal, "persistent-storage");
     }
 
+    ExtensionPermissions.removeAll(addon.id);
+
     if (!Services.prefs.getBoolPref(LEAVE_UUID_PREF, false)) {
       // Clear the entry in the UUID map
       UUIDMap.remove(addon.id);
@@ -279,6 +287,13 @@ var UninstallObserver = {
 };
 
 UninstallObserver.init();
+
+const manifestTypes = new Map([
+  ["theme", "manifest.ThemeManifest"],
+  ["langpack", "manifest.WebExtensionLangpackManifest"],
+  ["dictionary", "manifest.WebExtensionDictionaryManifest"],
+  ["extension", "manifest.WebExtensionManifest"],
+]);
 
 /**
  * Represents the data contained in an extension, contained either
@@ -537,15 +552,66 @@ class ExtensionData {
   // Compute the difference between two sets of permissions, suitable
   // for presenting to the user.
   static comparePermissions(oldPermissions, newPermissions) {
-    let oldMatcher = new MatchPatternSet(oldPermissions.origins);
+    let oldMatcher = new MatchPatternSet(oldPermissions.origins, {restrictSchemes: false});
     return {
-      origins: newPermissions.origins.filter(perm => !oldMatcher.subsumes(new MatchPattern(perm))),
+      // formatPermissionStrings ignores any scheme, so only look at the domain.
+      origins: newPermissions.origins.filter(perm => !oldMatcher.subsumesDomain(new MatchPattern(perm, {restrictSchemes: false}))),
       permissions: newPermissions.permissions.filter(perm => !oldPermissions.permissions.includes(perm)),
     };
   }
 
   canUseExperiment(manifest) {
     return this.experimentsAllowed && manifest.experiment_apis;
+  }
+
+  /**
+   * Load a locale and return a localized manifest.  The extension must
+   * be initialized, and manifest parsed prior to calling.
+   *
+   * @param {string} locale to load, if necessary.
+   * @returns {object} normalized manifest.
+   */
+  async getLocalizedManifest(locale) {
+    if (!this.type || !this.localeData) {
+      throw new Error("The extension has not been initialized.");
+    }
+    if (!this.localeData.has(locale)) {
+      // Locales are not avialable until some additional
+      // initialization is done.  We could just call initAllLocales,
+      // but that is heavy handed, especially when we likely only
+      // need one out of 20.
+      let locales = await this.promiseLocales();
+      if (locales.get(locale)) {
+        await this.initLocale(locale);
+      }
+      if (!this.localeData.has(locale)) {
+        throw new Error(`The extension does not contain the locale ${locale}`);
+      }
+    }
+    let normalized = await this._getNormalizedManifest(locale);
+    if (normalized.error) {
+      throw new Error(normalized.error);
+    }
+    return normalized.value;
+  }
+
+  async _getNormalizedManifest(locale) {
+    let manifestType = manifestTypes.get(this.type);
+
+    let context = {
+      url: this.baseURI && this.baseURI.spec,
+      principal: this.principal,
+      logError: error => {
+        this.manifestWarning(error);
+      },
+      preprocessors: {},
+    };
+
+    if (this.localeData) {
+      context.preprocessors.localize = (value, context) => this.localize(value, locale);
+    }
+
+    return Schemas.normalize(this.rawManifest, manifestType, context);
   }
 
   // eslint-disable-next-line complexity
@@ -558,41 +624,26 @@ class ExtensionData {
     this.manifest = manifest;
     this.rawManifest = manifest;
 
+    if (allowPrivateBrowsingByDefault &&
+        "incognito" in manifest && manifest.incognito == "not_allowed") {
+      throw new Error(`manifest.incognito set to "not_allowed" is currently unvailable for use.`);
+    }
+
     if (manifest && manifest.default_locale) {
       await this.initLocale();
     }
 
-    let context = {
-      url: this.baseURI && this.baseURI.spec,
-
-      principal: this.principal,
-
-      logError: error => {
-        this.manifestWarning(error);
-      },
-
-      preprocessors: {},
-    };
-
-    let manifestType = "manifest.WebExtensionManifest";
     if (this.manifest.theme) {
       this.type = "theme";
-      manifestType = "manifest.ThemeManifest";
     } else if (this.manifest.langpack_id) {
       this.type = "langpack";
-      manifestType = "manifest.WebExtensionLangpackManifest";
     } else if (this.manifest.dictionaries) {
       this.type = "dictionary";
-      manifestType = "manifest.WebExtensionDictionaryManifest";
     } else {
       this.type = "extension";
     }
 
-    if (this.localeData) {
-      context.preprocessors.localize = (value, context) => this.localize(value);
-    }
-
-    let normalized = Schemas.normalize(this.manifest, manifestType, context);
+    let normalized = await this._getNormalizedManifest();
     if (normalized.error) {
       this.manifestError(normalized.error);
       return null;
@@ -632,7 +683,6 @@ class ExtensionData {
       schemaURLs: null,
       type: this.type,
       webAccessibleResources,
-      privateBrowsingAllowed: manifest.incognito !== "not_allowed",
     };
 
     if (this.type === "extension") {
@@ -653,12 +703,20 @@ class ExtensionData {
           originPermissions.add(perm);
         } else if (type.api) {
           apiNames.add(type.api);
-        } else if (type.originInvalid) {
-          this.manifestWarning(`Invalid host permission: ${perm}`);
+        } else if (type.invalid) {
+          this.manifestWarning(`Invalid extension permission: ${perm}`);
           continue;
         }
 
         permissions.add(perm);
+      }
+
+      // We only want to set permissions if the feature is preffed on
+      // (allowPrivateBrowsingByDefault is false)
+      if (!allowPrivateBrowsingByDefault &&
+          manifest.incognito !== "not_allowed" &&
+          this.isPrivileged && !this.addonData.temporarilyInstalled) {
+        permissions.add("internal:privateBrowsingAllowed");
       }
 
       if (this.id) {
@@ -667,7 +725,7 @@ class ExtensionData {
         originPermissions.add(matcher.pattern);
 
         // Apply optional permissions
-        let perms = await ExtensionPermissions.get(this);
+        let perms = await ExtensionPermissions.get(this.id);
         for (let perm of perms.permissions) {
           permissions.add(perm);
         }
@@ -1101,10 +1159,15 @@ class ExtensionData {
         allUrls = true;
         break;
       }
-      let match = /^[a-z*]+:\/\/([^/]*)\//.exec(permission);
+
+      // Privileged extensions may request access to "about:"-URLs, such as
+      // about:reader.
+      let match = /^[a-z*]+:\/\/([^/]*)\/|^about:/.exec(permission);
       if (!match) {
         throw new Error(`Unparseable host permission ${permission}`);
       }
+      // Note: the scheme is ignored in the permission warnings. If this ever
+      // changes, update the comparePermissions method as needed.
       if (!match[1] || match[1] == "*") {
         allUrls = true;
       } else if (match[1].startsWith("*.")) {
@@ -1425,7 +1488,7 @@ class Extension extends ExtensionData {
    * @property {TabManager} tabManager
    */
 
-  static getBootstrapScope(id, file) {
+  static getBootstrapScope() {
     return new BootstrapScope();
   }
 
@@ -1440,18 +1503,6 @@ class Extension extends ExtensionData {
       }
     }
     return frameLoader || ExtensionParent.DebugUtils.getFrameLoader(this.id);
-  }
-
-  static generateXPI(data) {
-    return ExtensionTestCommon.generateXPI(data);
-  }
-
-  static generateZipFile(files, baseName = "generated-extension.xpi") {
-    return ExtensionTestCommon.generateZipFile(files, baseName);
-  }
-
-  static generate(data) {
-    return ExtensionTestCommon.generate(data);
   }
 
   on(hook, f) {
@@ -1545,24 +1596,8 @@ class Extension extends ExtensionData {
     XPIProvider.setStartupData(this.id, this.startupData);
   }
 
-  async _parseManifest() {
-    let manifest = await super.parseManifest();
-    if (manifest && manifest.permissions.has("mozillaAddons") &&
-        !this.isPrivileged) {
-      Cu.reportError(`Stripping mozillaAddons permission from ${this.id}`);
-      manifest.permissions.delete("mozillaAddons");
-      let i = manifest.manifest.permissions.indexOf("mozillaAddons");
-      if (i >= 0) {
-        manifest.manifest.permissions.splice(i, 1);
-      } else {
-        throw new Error("Could not find mozilaAddons in original permissions array");
-      }
-    }
-    return manifest;
-  }
-
   parseManifest() {
-    return StartupCache.manifests.get(this.manifestCacheKey, () => this._parseManifest());
+    return StartupCache.manifests.get(this.manifestCacheKey, () => super.parseManifest());
   }
 
   async cachePermissions() {
@@ -1620,7 +1655,6 @@ class Extension extends ExtensionData {
       whiteListedHosts: this.whiteListedHosts.patterns.map(pat => pat.pattern),
       permissions: this.permissions,
       optionalPermissions: this.optionalPermissions,
-      privateBrowsingAllowed: this.privateBrowsingAllowed,
     };
   }
 
@@ -1856,12 +1890,6 @@ class Extension extends ExtensionData {
         return;
       }
 
-      if (this.addonData && this.addonData.incognitoOverride !== undefined) {
-        this.policy.privateBrowsingAllowed = this.addonData.incognitoOverride !== "not_allowed";
-      } else {
-        this.policy.privateBrowsingAllowed = this.manifest.incognito !== "not_allowed";
-      }
-
       GlobalManager.init(this);
 
       this.initSharedData();
@@ -1976,8 +2004,7 @@ class Extension extends ExtensionData {
       this.state = "Shutdown: Flushed jar cache";
     }
 
-    if (this.cleanupFile ||
-        ["ADDON_INSTALL", "ADDON_UNINSTALL", "ADDON_UPGRADE", "ADDON_DOWNGRADE"].includes(reason)) {
+    if (this.cleanupFile || reason !== "APP_SHUTDOWN") {
       StartupCache.clearAddonData(this.id);
     }
 
@@ -2057,7 +2084,7 @@ class Dictionary extends ExtensionData {
     this.startupData = addonData.startupData;
   }
 
-  static getBootstrapScope(id, file) {
+  static getBootstrapScope() {
     return new DictionaryBootstrapScope();
   }
 
@@ -2087,7 +2114,7 @@ class Langpack extends ExtensionData {
     this.manifestCacheKey = [addonData.id, addonData.version];
   }
 
-  static getBootstrapScope(id, file) {
+  static getBootstrapScope() {
     return new LangpackBootstrapScope();
   }
 

@@ -5,7 +5,7 @@
 
 const Services = require("Services");
 const { Component, createFactory } = require("devtools/client/shared/vendor/react");
-const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
+loader.lazyRequireGetter(this, "PropTypes", "devtools/client/shared/vendor/react-prop-types");
 const dom = require("devtools/client/shared/vendor/react-dom-factories");
 const { connect } = require("devtools/client/shared/redux/visibility-handler-connect");
 
@@ -39,9 +39,9 @@ const isMacOS = Services.appinfo.OS === "Darwin";
 class App extends Component {
   static get propTypes() {
     return {
-      attachRefToHud: PropTypes.func.isRequired,
+      attachRefToWebConsoleUI: PropTypes.func.isRequired,
       dispatch: PropTypes.func.isRequired,
-      hud: PropTypes.object.isRequired,
+      webConsoleUI: PropTypes.object.isRequired,
       notifications: PropTypes.object,
       onFirstMeaningfulPaint: PropTypes.func.isRequired,
       serviceContainer: PropTypes.object.isRequired,
@@ -49,6 +49,7 @@ class App extends Component {
       jstermCodeMirror: PropTypes.bool,
       currentReverseSearchEntry: PropTypes.string,
       reverseSearchInputVisible: PropTypes.bool,
+      reverseSearchInitialValue: PropTypes.string,
     };
   }
 
@@ -63,13 +64,15 @@ class App extends Component {
   onKeyDown(event) {
     const {
       dispatch,
+      webConsoleUI,
     } = this.props;
 
     if (
       (!isMacOS && event.key === "F9") ||
       (isMacOS && event.key === "r" && event.ctrlKey === true)
     ) {
-      dispatch(actions.reverseSearchInputToggle());
+      const initialValue = webConsoleUI.jsterm && webConsoleUI.jsterm.getSelectedText();
+      dispatch(actions.reverseSearchInputToggle({initialValue}));
       event.stopPropagation();
     }
   }
@@ -79,7 +82,7 @@ class App extends Component {
     const {
       reverseSearchInputVisible,
       dispatch,
-      hud,
+      webConsoleUI,
     } = this.props;
 
     if (reverseSearchInputVisible === true && !target.closest(".reverse-search")) {
@@ -111,25 +114,25 @@ class App extends Component {
 
     // Do not focus if something other than the output region was clicked
     // (including e.g. the clear messages button in toolbar)
-    if (!target.closest(".webconsole-output-wrapper")) {
+    if (!target.closest(".webconsole-app")) {
       return;
     }
 
     // Do not focus if something is selected
-    const selection = hud.document.defaultView.getSelection();
+    const selection = webConsoleUI.document.defaultView.getSelection();
     if (selection && !selection.isCollapsed) {
       return;
     }
 
-    if (hud && hud.jsterm) {
-      hud.jsterm.focus();
+    if (webConsoleUI && webConsoleUI.jsterm) {
+      webConsoleUI.jsterm.focus();
     }
   }
 
   onPaste(event) {
     const {
       dispatch,
-      hud,
+      webConsoleUI,
       notifications,
     } = this.props;
 
@@ -139,7 +142,7 @@ class App extends Component {
     } = WebConsoleUtils;
 
     // Bail out if self-xss notification is suppressed.
-    if (hud.isBrowserConsole || usageCount >= CONSOLE_ENTRY_THRESHOLD) {
+    if (webConsoleUI.isBrowserConsole || usageCount >= CONSOLE_ENTRY_THRESHOLD) {
       return;
     }
 
@@ -189,16 +192,17 @@ class App extends Component {
 
   render() {
     const {
-      attachRefToHud,
-      hud,
+      attachRefToWebConsoleUI,
+      webConsoleUI,
       notifications,
       onFirstMeaningfulPaint,
       serviceContainer,
       closeSplitConsole,
       jstermCodeMirror,
+      reverseSearchInitialValue,
     } = this.props;
 
-    const classNames = ["webconsole-output-wrapper"];
+    const classNames = ["webconsole-app"];
     if (jstermCodeMirror) {
       classNames.push("jsterm-cm");
     }
@@ -221,10 +225,8 @@ class App extends Component {
         }},
         div({className: "webconsole-flex-wrapper"},
           FilterBar({
-            hidePersistLogsCheckbox: hud.isBrowserConsole,
-            serviceContainer: {
-              attachRefToHud,
-            },
+            hidePersistLogsCheckbox: webConsoleUI.isBrowserConsole,
+            attachRefToWebConsoleUI,
             closeSplitConsole,
           }),
           ConsoleOutput({
@@ -236,20 +238,21 @@ class App extends Component {
             notifications,
           }),
           JSTerm({
-            hud,
+            webConsoleUI,
             serviceContainer,
             onPaste: this.onPaste,
             codeMirrorEnabled: jstermCodeMirror,
           }),
           ReverseSearchInput({
-            hud,
+            webConsoleUI,
+            initialValue: reverseSearchInitialValue,
           })
         ),
         SideBar({
           serviceContainer,
         }),
         ConfirmDialog({
-          hud,
+          webConsoleUI,
           serviceContainer,
           codeMirrorEnabled: jstermCodeMirror,
         }),
@@ -261,6 +264,7 @@ class App extends Component {
 const mapStateToProps = state => ({
   notifications: getAllNotifications(state),
   reverseSearchInputVisible: state.ui.reverseSearchInputVisible,
+  reverseSearchInitialValue: state.ui.reverseSearchInitialValue,
 });
 
 const mapDispatchToProps = dispatch => ({

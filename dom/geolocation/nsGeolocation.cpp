@@ -36,20 +36,20 @@
 class nsIPrincipal;
 
 #ifdef MOZ_WIDGET_ANDROID
-#include "AndroidLocationProvider.h"
+#  include "AndroidLocationProvider.h"
 #endif
 
 #ifdef MOZ_GPSD
-#include "GpsdLocationProvider.h"
+#  include "GpsdLocationProvider.h"
 #endif
 
 #ifdef MOZ_WIDGET_COCOA
-#include "CoreLocationLocationProvider.h"
+#  include "CoreLocationLocationProvider.h"
 #endif
 
 #ifdef XP_WIN
-#include "WindowsLocationProvider.h"
-#include "mozilla/WindowsVersion.h"
+#  include "WindowsLocationProvider.h"
+#  include "mozilla/WindowsVersion.h"
 #endif
 
 // Some limit to the number of get or watch geolocation requests
@@ -80,7 +80,7 @@ class nsGeolocationRequest final
                        UniquePtr<PositionOptions>&& aOptions,
                        uint8_t aProtocolType, nsIEventTarget* aMainThreadTarget,
                        bool aWatchPositionRequest = false,
-                       bool aIsHandlingUserInput = false, int32_t aWatchId = 0);
+                       int32_t aWatchId = 0);
 
   // nsIContentPermissionRequest
   NS_IMETHOD Cancel(void) override;
@@ -191,9 +191,9 @@ nsGeolocationRequest::nsGeolocationRequest(
     GeoPositionErrorCallback aErrorCallback,
     UniquePtr<PositionOptions>&& aOptions, uint8_t aProtocolType,
     nsIEventTarget* aMainThreadTarget, bool aWatchPositionRequest,
-    bool aIsHandlingUserInput, int32_t aWatchId)
+    int32_t aWatchId)
     : ContentPermissionRequestBase(
-          aLocator->GetPrincipal(), aIsHandlingUserInput,
+          aLocator->GetPrincipal(),
           ConvertWeakReferenceToWindow(aLocator->GetOwner()),
           NS_LITERAL_CSTRING("geo"), NS_LITERAL_CSTRING("geolocation")),
       mIsWatchPositionRequest(aWatchPositionRequest),
@@ -525,11 +525,11 @@ nsresult nsGeolocationService::Init() {
 #endif
 
 #ifdef MOZ_WIDGET_GTK
-#ifdef MOZ_GPSD
+#  ifdef MOZ_GPSD
   if (Preferences::GetBool("geo.provider.use_gpsd", false)) {
     mProvider = new GpsdLocationProvider();
   }
-#endif
+#  endif
 #endif
 
 #ifdef MOZ_WIDGET_COCOA
@@ -1054,8 +1054,7 @@ nsresult Geolocation::GetCurrentPosition(GeoPositionCallback callback,
   nsIEventTarget* target = MainThreadTarget(this);
   RefPtr<nsGeolocationRequest> request = new nsGeolocationRequest(
       this, std::move(callback), std::move(errorCallback), std::move(options),
-      static_cast<uint8_t>(mProtocolType), target, false,
-      EventStateManager::IsHandlingUserInput());
+      static_cast<uint8_t>(mProtocolType), target);
 
   if (!sGeoEnabled || ShouldBlockInsecureRequests() ||
       !FeaturePolicyBlocked()) {
@@ -1128,7 +1127,7 @@ int32_t Geolocation::WatchPosition(GeoPositionCallback aCallback,
   RefPtr<nsGeolocationRequest> request = new nsGeolocationRequest(
       this, std::move(aCallback), std::move(aErrorCallback),
       std::move(aOptions), static_cast<uint8_t>(mProtocolType), target, true,
-      EventStateManager::IsHandlingUserInput(), watchId);
+      watchId);
 
   if (!sGeoEnabled || ShouldBlockInsecureRequests() ||
       !FeaturePolicyBlocked()) {

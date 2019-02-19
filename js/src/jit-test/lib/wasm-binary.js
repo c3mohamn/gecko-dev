@@ -98,7 +98,9 @@ const I64DivSCode      = 0x7f;
 const I64DivUCode      = 0x80;
 const I64RemSCode      = 0x81;
 const I64RemUCode      = 0x82;
-const RefNull          = 0xd0;
+const RefNullCode      = 0xd0;
+const RefIsNullCode    = 0xd1;
+const RefFuncCode      = 0xd2;
 
 const FirstInvalidOpcode = 0xc5;
 const LastInvalidOpcode = 0xfb;
@@ -108,6 +110,14 @@ const ThreadPrefix = 0xfe;
 const MozPrefix = 0xff;
 
 // Secondary opcode bytes for misc prefix
+const MemoryInitCode = 0x08;    // Pending
+const DataDropCode = 0x09;      // Pending
+const MemoryCopyCode = 0x0a;    // Pending
+const MemoryFillCode = 0x0b;    // Pending
+const TableInitCode = 0x0c;     // Pending
+const ElemDropCode = 0x0d;      // Pending
+const TableCopyCode = 0x0e;     // Pending
+
 const StructNew = 0x50;         // UNOFFICIAL
 const StructGet = 0x51;         // UNOFFICIAL
 const StructSet = 0x52;         // UNOFFICIAL

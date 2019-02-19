@@ -13,12 +13,13 @@ use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::u32;
-use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, DeviceIntRect};
-use {DeviceIntSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
-use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphIndex, ImageData};
-use {ImageDescriptor, ItemTag, LayoutPoint, LayoutSize, LayoutTransform, LayoutVector2D};
-use {BlobDirtyRect, ImageDirtyRect, ImageKey, BlobImageKey, BlobImageData};
-use {NativeFontHandle, WorldPoint};
+// local imports
+use {display_item as di, font};
+use color::ColorF;
+use display_list::{BuiltDisplayList, BuiltDisplayListDescriptor};
+use image::{BlobImageData, BlobImageKey, ImageData, ImageDescriptor, ImageKey};
+use units::*;
+
 
 pub type TileSize = u16;
 /// Documents are rendered in the ascending order of their associated layer values.
@@ -33,9 +34,9 @@ pub enum ResourceUpdate {
     DeleteImage(ImageKey),
     SetBlobImageVisibleArea(BlobImageKey, DeviceIntRect),
     AddFont(AddFont),
-    DeleteFont(FontKey),
+    DeleteFont(font::FontKey),
     AddFontInstance(AddFontInstance),
-    DeleteFontInstance(FontInstanceKey),
+    DeleteFontInstance(font::FontInstanceKey),
 }
 
 /// A Transaction is a group of commands to apply atomically to a document.
@@ -147,7 +148,6 @@ impl Transaction {
     ///
     /// Arguments:
     ///
-    /// * `document_id`: Target Document ID.
     /// * `epoch`: The unique Frame ID, monotonically increasing.
     /// * `background`: The background color of this pipeline.
     /// * `viewport_size`: The size of the viewport for this frame.
@@ -225,7 +225,7 @@ impl Transaction {
     pub fn scroll_node_with_id(
         &mut self,
         origin: LayoutPoint,
-        id: ExternalScrollId,
+        id: di::ExternalScrollId,
         clamp: ScrollClamping,
     ) {
         self.frame_ops.push(FrameMsg::ScrollNodeWithId(origin, id, clamp));
@@ -381,28 +381,28 @@ impl Transaction {
         self.resource_updates.push(ResourceUpdate::SetBlobImageVisibleArea(key, area))
     }
 
-    pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
+    pub fn add_raw_font(&mut self, key: font::FontKey, bytes: Vec<u8>, index: u32) {
         self.resource_updates
             .push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes, index)));
     }
 
-    pub fn add_native_font(&mut self, key: FontKey, native_handle: NativeFontHandle) {
+    pub fn add_native_font(&mut self, key: font::FontKey, native_handle: font::NativeFontHandle) {
         self.resource_updates
             .push(ResourceUpdate::AddFont(AddFont::Native(key, native_handle)));
     }
 
-    pub fn delete_font(&mut self, key: FontKey) {
+    pub fn delete_font(&mut self, key: font::FontKey) {
         self.resource_updates.push(ResourceUpdate::DeleteFont(key));
     }
 
     pub fn add_font_instance(
         &mut self,
-        key: FontInstanceKey,
-        font_key: FontKey,
+        key: font::FontInstanceKey,
+        font_key: font::FontKey,
         glyph_size: Au,
-        options: Option<FontInstanceOptions>,
-        platform_options: Option<FontInstancePlatformOptions>,
-        variations: Vec<FontVariation>,
+        options: Option<font::FontInstanceOptions>,
+        platform_options: Option<font::FontInstancePlatformOptions>,
+        variations: Vec<font::FontVariation>,
     ) {
         self.resource_updates
             .push(ResourceUpdate::AddFontInstance(AddFontInstance {
@@ -415,7 +415,7 @@ impl Transaction {
             }));
     }
 
-    pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
+    pub fn delete_font_instance(&mut self, key: font::FontInstanceKey) {
         self.resource_updates.push(ResourceUpdate::DeleteFontInstance(key));
     }
 
@@ -530,11 +530,11 @@ pub struct UpdateBlobImage {
 #[derive(Clone, Deserialize, Serialize)]
 pub enum AddFont {
     Raw(
-        FontKey,
+        font::FontKey,
         #[serde(with = "serde_bytes")] Vec<u8>,
         u32
     ),
-    Native(FontKey, NativeFontHandle),
+    Native(font::FontKey, font::NativeFontHandle),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -543,7 +543,7 @@ pub struct HitTestItem {
     pub pipeline: PipelineId,
 
     /// The tag of the hit display item.
-    pub tag: ItemTag,
+    pub tag: di::ItemTag,
 
     /// The hit point in the coordinate space of the "viewport" of the display item. The
     /// viewport is the scroll node formed by the root reference frame of the display item's
@@ -561,7 +561,7 @@ pub struct HitTestResult {
 }
 
 bitflags! {
-    #[derive(Deserialize, Serialize)]
+    #[derive(Deserialize, MallocSizeOf, Serialize)]
     pub struct HitTestFlags: u8 {
         const FIND_ALL = 0b00000001;
         const POINT_RELATIVE_TO_PIPELINE_VIEWPORT = 0b00000010;
@@ -570,12 +570,12 @@ bitflags! {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AddFontInstance {
-    pub key: FontInstanceKey,
-    pub font_key: FontKey,
+    pub key: font::FontInstanceKey,
+    pub font_key: font::FontKey,
     pub glyph_size: Au,
-    pub options: Option<FontInstanceOptions>,
-    pub platform_options: Option<FontInstancePlatformOptions>,
-    pub variations: Vec<FontVariation>,
+    pub options: Option<font::FontInstanceOptions>,
+    pub platform_options: Option<font::FontInstancePlatformOptions>,
+    pub variations: Vec<font::FontVariation>,
 }
 
 // Frame messages affect building the scene.
@@ -609,7 +609,7 @@ pub enum FrameMsg {
     SetPan(DeviceIntPoint),
     EnableFrameOutput(PipelineId, bool),
     Scroll(ScrollLocation, WorldPoint),
-    ScrollNodeWithId(LayoutPoint, ExternalScrollId, ScrollClamping),
+    ScrollNodeWithId(LayoutPoint, di::ExternalScrollId, ScrollClamping),
     GetScrollNodeState(MsgSender<Vec<ScrollNodeState>>),
     UpdateDynamicProperties(DynamicProperties),
     AppendDynamicProperties(DynamicProperties),
@@ -716,12 +716,12 @@ pub enum ApiMsg {
     UpdateResources(Vec<ResourceUpdate>),
     /// Gets the glyph dimensions
     GetGlyphDimensions(
-        FontInstanceKey,
-        Vec<GlyphIndex>,
-        MsgSender<Vec<Option<GlyphDimensions>>>,
+        font::FontInstanceKey,
+        Vec<font::GlyphIndex>,
+        MsgSender<Vec<Option<font::GlyphDimensions>>>,
     ),
     /// Gets the glyph indices from a string
-    GetGlyphIndices(FontKey, String, MsgSender<Vec<Option<u32>>>),
+    GetGlyphIndices(font::FontKey, String, MsgSender<Vec<Option<u32>>>),
     /// Adds a new document namespace.
     CloneApi(MsgSender<IdNamespace>),
     /// Adds a new document namespace.
@@ -787,11 +787,11 @@ impl Epoch {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize)]
 pub struct DocumentId(pub IdNamespace, pub u32);
 
 impl DocumentId {
@@ -807,7 +807,7 @@ pub type PipelineSourceId = u32;
 /// From the point of view of WR, `PipelineId` is completely opaque and generic as long as
 /// it's clonable, serializable, comparable, and hashable.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
 impl PipelineId {
@@ -816,14 +816,69 @@ impl PipelineId {
     }
 }
 
-/// Collection of heap sizes, in bytes.
+/// Meta-macro to enumerate the various interner identifiers and types.
+///
+/// IMPORTANT: Keep this synchronized with the list in mozilla-central located at
+/// gfx/webrender_bindings/webrender_ffi.h
+///
+/// Note that this could be a lot less verbose if concat_idents! were stable. :-(
+#[macro_export]
+macro_rules! enumerate_interners {
+    ($macro_name: ident) => {
+        $macro_name! {
+            clip,
+            prim,
+            normal_border,
+            image_border,
+            image,
+            yuv_image,
+            line_decoration,
+            linear_grad,
+            radial_grad,
+            picture,
+            text_run,
+        }
+    }
+}
+
+macro_rules! declare_interning_memory_report {
+    ( $( $name: ident, )+ ) => {
+        #[repr(C)]
+        #[derive(AddAssign, Clone, Debug, Default, Deserialize, Serialize)]
+        pub struct InternerSubReport {
+            $(
+                pub $name: usize,
+            )+
+        }
+    }
+}
+
+enumerate_interners!(declare_interning_memory_report);
+
+/// Memory report for interning-related data structures.
+/// cbindgen:derive-eq=false
 #[repr(C)]
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct InterningMemoryReport {
+    pub interners: InternerSubReport,
+    pub data_stores: InternerSubReport,
+}
+
+impl ::std::ops::AddAssign for InterningMemoryReport {
+    fn add_assign(&mut self, other: InterningMemoryReport) {
+        self.interners += other.interners;
+        self.data_stores += other.data_stores;
+    }
+}
+
+/// Collection of heap sizes, in bytes.
+/// cbindgen:derive-eq=false
+#[repr(C)]
+#[derive(AddAssign, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MemoryReport {
     //
     // CPU Memory.
     //
-    pub primitive_stores: usize,
     pub clip_stores: usize,
     pub gpu_cache_metadata: usize,
     pub gpu_cache_cpu_mirror: usize,
@@ -833,8 +888,7 @@ pub struct MemoryReport {
     pub images: usize,
     pub rasterized_blobs: usize,
     pub shader_cache: usize,
-    pub data_stores: usize,
-    pub interners: usize,
+    pub interning: InterningMemoryReport,
 
     //
     // GPU memory.
@@ -845,29 +899,6 @@ pub struct MemoryReport {
     pub texture_cache_textures: usize,
     pub depth_target_textures: usize,
     pub swap_chain: usize,
-}
-
-impl ::std::ops::AddAssign for MemoryReport {
-    fn add_assign(&mut self, other: MemoryReport) {
-        self.primitive_stores += other.primitive_stores;
-        self.clip_stores += other.clip_stores;
-        self.gpu_cache_metadata += other.gpu_cache_metadata;
-        self.gpu_cache_cpu_mirror += other.gpu_cache_cpu_mirror;
-        self.render_tasks += other.render_tasks;
-        self.hit_testers += other.hit_testers;
-        self.fonts += other.fonts;
-        self.images += other.images;
-        self.rasterized_blobs += other.rasterized_blobs;
-        self.shader_cache += other.shader_cache;
-        self.data_stores += other.data_stores;
-        self.interners += other.interners;
-        self.gpu_cache_textures += other.gpu_cache_textures;
-        self.vertex_data_textures += other.vertex_data_textures;
-        self.render_target_textures += other.render_target_textures;
-        self.texture_cache_textures += other.texture_cache_textures;
-        self.depth_target_textures += other.depth_target_textures;
-        self.swap_chain += other.swap_chain;
-    }
 }
 
 /// A C function that takes a pointer to a heap allocation and returns its size.
@@ -963,7 +994,7 @@ impl RenderApiSender {
 }
 
 bitflags! {
-    #[derive(Default, Deserialize, Serialize)]
+    #[derive(Default, Deserialize, MallocSizeOf, Serialize)]
     pub struct DebugFlags: u32 {
         /// Display the frame profiler on screen.
         const PROFILER_DBG          = 1 << 0;
@@ -991,6 +1022,10 @@ bitflags! {
         /// Show picture caching debug overlay
         const PICTURE_CACHING_DBG   = 1 << 15;
         const TEXTURE_CACHE_DBG_DISABLE_SHRINK = 1 << 16;
+        /// Highlight all primitives with colors based on kind.
+        const PRIMITIVE_DBG = 1 << 17;
+        /// Draw a zoom widget showing part of the framebuffer zoomed in.
+        const ZOOM_DBG = 1 << 18;
     }
 }
 
@@ -1025,14 +1060,14 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    pub fn generate_font_key(&self) -> FontKey {
+    pub fn generate_font_key(&self) -> font::FontKey {
         let new_id = self.next_unique_id();
-        FontKey::new(self.namespace_id, new_id)
+        font::FontKey::new(self.namespace_id, new_id)
     }
 
-    pub fn generate_font_instance_key(&self) -> FontInstanceKey {
+    pub fn generate_font_instance_key(&self) -> font::FontInstanceKey {
         let new_id = self.next_unique_id();
-        FontInstanceKey::new(self.namespace_id, new_id)
+        font::FontInstanceKey::new(self.namespace_id, new_id)
     }
 
     /// Gets the dimensions for the supplied glyph keys
@@ -1042,9 +1077,9 @@ impl RenderApi {
     /// This means that glyph dimensions e.g. for spaces (' ') will mostly be None.
     pub fn get_glyph_dimensions(
         &self,
-        font: FontInstanceKey,
-        glyph_indices: Vec<GlyphIndex>,
-    ) -> Vec<Option<GlyphDimensions>> {
+        font: font::FontInstanceKey,
+        glyph_indices: Vec<font::GlyphIndex>,
+    ) -> Vec<Option<font::GlyphDimensions>> {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetGlyphDimensions(font, glyph_indices, tx);
         self.api_sender.send(msg).unwrap();
@@ -1053,7 +1088,7 @@ impl RenderApi {
 
     /// Gets the glyph indices for the supplied string. These
     /// can be used to construct GlyphKeys.
-    pub fn get_glyph_indices(&self, font_key: FontKey, text: &str) -> Vec<Option<u32>> {
+    pub fn get_glyph_indices(&self, font_key: font::FontKey, text: &str) -> Vec<Option<u32>> {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetGlyphIndices(font_key, text.to_string(), tx);
         self.api_sender.send(msg).unwrap();
@@ -1258,7 +1293,7 @@ impl Drop for RenderApi {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ScrollNodeState {
-    pub id: ExternalScrollId,
+    pub id: di::ExternalScrollId,
     pub scroll_offset: LayoutVector2D,
 }
 
@@ -1278,7 +1313,7 @@ pub struct ZoomFactor(f32);
 
 impl ZoomFactor {
     /// Construct a new zoom factor.
-    pub fn new(scale: f32) -> ZoomFactor {
+    pub fn new(scale: f32) -> Self {
         ZoomFactor(scale)
     }
 
@@ -1289,7 +1324,7 @@ impl ZoomFactor {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash)]
 pub struct PropertyBindingId {
     namespace: IdNamespace,
     uid: u32,

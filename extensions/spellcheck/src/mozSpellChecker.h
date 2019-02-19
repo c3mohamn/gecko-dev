@@ -6,6 +6,7 @@
 #ifndef mozSpellChecker_h__
 #define mozSpellChecker_h__
 
+#include "mozilla/MozPromise.h"
 #include "nsCOMPtr.h"
 #include "nsCOMArray.h"
 #include "nsString.h"
@@ -20,6 +21,7 @@ class mozEnglishWordUtils;
 namespace mozilla {
 class RemoteSpellcheckEngineChild;
 class TextServicesDocument;
+typedef MozPromise<nsTArray<bool>, nsresult, false> CheckWordPromise;
 }  // namespace mozilla
 
 class mozSpellChecker final {
@@ -58,10 +60,18 @@ class mozSpellChecker final {
    * @param aIsMisspelled will be set to true if the word is misspelled.
    * @param aSuggestions is an array of nsStrings which represent the
    * suggested replacements for the misspelled word. The array will be empty
-   * if there aren't any suggestions.
+   * in chrome process if there aren't any suggestions. If suggestions is
+   * unnecessary, use CheckWords of async version.
    */
   nsresult CheckWord(const nsAString& aWord, bool* aIsMisspelled,
                      nsTArray<nsString>* aSuggestions);
+
+  /**
+   * This is a flavor of CheckWord, is async version of CheckWord.
+   * @Param aWords is array of words to check
+   */
+  RefPtr<mozilla::CheckWordPromise> CheckWords(
+      const nsTArray<nsString>& aWords);
 
   /**
    * Replaces the old word with the specified new word.

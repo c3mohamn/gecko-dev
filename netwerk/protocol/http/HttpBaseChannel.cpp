@@ -42,8 +42,10 @@
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
 #include "nsINetworkInterceptController.h"
+#include "mozilla/AntiTrackingCommon.h"
 #include "mozilla/dom/Performance.h"
 #include "mozilla/dom/PerformanceStorage.h"
+#include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/Services.h"
 #include "mozIThirdPartyUtil.h"
@@ -291,7 +293,6 @@ void HttpBaseChannel::ReleaseMainThreadOnlyReferences() {
   arrayToRelease.AppendElement(mPrincipal.forget());
   arrayToRelease.AppendElement(mTopWindowURI.forget());
   arrayToRelease.AppendElement(mListener.forget());
-  arrayToRelease.AppendElement(mListenerContext.forget());
   arrayToRelease.AppendElement(mCompressListener.forget());
 
   if (mAddedAsNonTailRequest) {
@@ -739,19 +740,7 @@ HttpBaseChannel::SetContentLength(int64_t value) {
 }
 
 NS_IMETHODIMP
-HttpBaseChannel::Open(nsIInputStream** aResult) {
-  NS_ENSURE_TRUE(!mWasOpened, NS_ERROR_IN_PROGRESS);
-
-  if (!gHttpHandler->Active()) {
-    LOG(("HttpBaseChannel::Open after HTTP shutdown..."));
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  return NS_ImplementChannelOpen(this, aResult);
-}
-
-NS_IMETHODIMP
-HttpBaseChannel::Open2(nsIInputStream** aStream) {
+HttpBaseChannel::Open(nsIInputStream** aStream) {
   if (!gHttpHandler->Active()) {
     LOG(("HttpBaseChannel::Open after HTTP shutdown..."));
     return NS_ERROR_NOT_AVAILABLE;
@@ -761,7 +750,15 @@ HttpBaseChannel::Open2(nsIInputStream** aStream) {
   nsresult rv =
       nsContentSecurityManager::doContentSecurityCheck(this, listener);
   NS_ENSURE_SUCCESS(rv, rv);
-  return Open(aStream);
+
+  NS_ENSURE_TRUE(!mWasOpened, NS_ERROR_IN_PROGRESS);
+
+  if (!gHttpHandler->Active()) {
+    LOG(("HttpBaseChannel::Open after HTTP shutdown..."));
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  return NS_ImplementChannelOpen(this, aStream);
 }
 
 //-----------------------------------------------------------------------------
@@ -1085,7 +1082,6 @@ bool HttpBaseChannel::MaybeWaitForUploadStreamLength(
   }
 
   mListener = aListener;
-  mListenerContext = aContext;
   mAsyncOpenWaitingForStreamLength = true;
   return true;
 }
@@ -1101,12 +1097,9 @@ void HttpBaseChannel::MaybeResumeAsyncOpen() {
   nsCOMPtr<nsIStreamListener> listener;
   listener.swap(mListener);
 
-  nsCOMPtr<nsISupports> context;
-  context.swap(mListenerContext);
-
   mAsyncOpenWaitingForStreamLength = false;
 
-  nsresult rv = AsyncOpen(listener, context);
+  nsresult rv = AsyncOpen(listener);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     DoAsyncAbort(rv);
   }
@@ -1132,8 +1125,7 @@ HttpBaseChannel::SetApplyConversion(bool value) {
 
 nsresult HttpBaseChannel::DoApplyContentConversions(
     nsIStreamListener* aNextListener, nsIStreamListener** aNewNextListener) {
-  return DoApplyContentConversions(aNextListener, aNewNextListener,
-                                   mListenerContext);
+  return DoApplyContentConversions(aNextListener, aNewNextListener, nullptr);
 }
 
 // create a listener chain that looks like this
@@ -2225,6 +2217,17 @@ HttpBaseChannel::RedirectTo(nsIURI* targetURI) {
 }
 
 NS_IMETHODIMP
+HttpBaseChannel::SwitchProcessTo(mozilla::dom::Promise* aTabParent,
+                                 uint64_t aIdentifier) {
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+HttpBaseChannel::HasCrossOriginOpenerPolicyMismatch(bool* aMismatch) {
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
 HttpBaseChannel::UpgradeToSecure() {
   // Upgrades are handled internally between http-on-modify-request and
   // http-on-before-connect, which means upgrades are only possible during
@@ -2319,7 +2322,24 @@ HttpBaseChannel::SetTopWindowURIIfUnknown(nsIURI* aTopWindowURI) {
 }
 
 NS_IMETHODIMP
+HttpBaseChannel::SetTopWindowPrincipal(nsIPrincipal* aTopWindowPrincipal) {
+  if (!aTopWindowPrincipal) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  mTopWindowPrincipal = aTopWindowPrincipal;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 HttpBaseChannel::GetTopWindowURI(nsIURI** aTopWindowURI) {
+  nsCOMPtr<nsIURI> uriBeingLoaded =
+      AntiTrackingCommon::MaybeGetDocumentURIBeingLoaded(this);
+  return GetTopWindowURI(uriBeingLoaded, aTopWindowURI);
+}
+
+nsresult HttpBaseChannel::GetTopWindowURI(nsIURI* aURIBeingLoaded,
+                                          nsIURI** aTopWindowURI) {
   nsresult rv = NS_OK;
   nsCOMPtr<mozIThirdPartyUtil> util;
   // Only compute the top window URI once. In e10s, this must be computed in the
@@ -2330,7 +2350,8 @@ HttpBaseChannel::GetTopWindowURI(nsIURI** aTopWindowURI) {
       return NS_ERROR_NOT_AVAILABLE;
     }
     nsCOMPtr<mozIDOMWindowProxy> win;
-    rv = util->GetTopWindowForChannel(this, getter_AddRefs(win));
+    rv = util->GetTopWindowForChannel(this, aURIBeingLoaded,
+                                      getter_AddRefs(win));
     if (NS_SUCCEEDED(rv)) {
       rv = util->GetURIFromWindow(win, getter_AddRefs(mTopWindowURI));
 #if DEBUG
@@ -2346,6 +2367,18 @@ HttpBaseChannel::GetTopWindowURI(nsIURI** aTopWindowURI) {
   }
   NS_IF_ADDREF(*aTopWindowURI = mTopWindowURI);
   return rv;
+}
+
+nsresult HttpBaseChannel::GetTopWindowPrincipal(
+    nsIPrincipal** aTopWindowPrincipal) {
+  nsCOMPtr<mozIThirdPartyUtil> util = services::GetThirdPartyUtil();
+  nsCOMPtr<mozIDOMWindowProxy> win;
+  nsresult rv =
+      util->GetTopWindowForChannel(this, nullptr, getter_AddRefs(win));
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+  return util->GetPrincipalFromWindow(win, getter_AddRefs(mTopWindowPrincipal));
 }
 
 NS_IMETHODIMP
@@ -3247,7 +3280,6 @@ void HttpBaseChannel::ReleaseListeners() {
   MOZ_ASSERT(NS_IsMainThread(), "Should only be called on the main thread.");
 
   mListener = nullptr;
-  mListenerContext = nullptr;
   mCallbacks = nullptr;
   mProgressSink = nullptr;
   mCompressListener = nullptr;
@@ -3268,7 +3300,7 @@ void HttpBaseChannel::DoNotifyListener() {
                "We should not call OnStartRequest twice");
 
     nsCOMPtr<nsIStreamListener> listener = mListener;
-    listener->OnStartRequest(this, mListenerContext);
+    listener->OnStartRequest(this, nullptr);
 
     mOnStartRequestCalled = true;
   }
@@ -3282,7 +3314,7 @@ void HttpBaseChannel::DoNotifyListener() {
     MOZ_ASSERT(!mOnStopRequestCalled, "We should not call OnStopRequest twice");
 
     nsCOMPtr<nsIStreamListener> listener = mListener;
-    listener->OnStopRequest(this, mListenerContext, mStatus);
+    listener->OnStopRequest(this, nullptr, mStatus);
 
     mOnStopRequestCalled = true;
   }
@@ -4527,8 +4559,10 @@ HttpBaseChannel::GetNativeServerTiming(
 }
 
 NS_IMETHODIMP
-HttpBaseChannel::CancelForTrackingProtection() {
-  return Cancel(NS_ERROR_TRACKING_URI);
+HttpBaseChannel::CancelByChannelClassifier(nsresult aErrorCode) {
+  MOZ_ASSERT(
+      UrlClassifierFeatureFactory::IsClassifierBlockingErrorCode(aErrorCode));
+  return Cancel(aErrorCode);
 }
 
 void HttpBaseChannel::SetIPv4Disabled() { mCaps |= NS_HTTP_DISABLE_IPV4; }

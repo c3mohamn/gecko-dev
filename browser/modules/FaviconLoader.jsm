@@ -6,8 +6,8 @@
 
 const EXPORTED_SYMBOLS = ["FaviconLoader"];
 
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
+const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyGlobalGetters(this, ["Blob", "FileReader"]);
 
@@ -144,7 +144,7 @@ class FaviconLoad {
     this.stream = new BufferedOutputStream(this.dataBuffer.getOutputStream(0), STREAM_SEGMENT_SIZE * 2);
 
     try {
-      this.channel.asyncOpen2(this);
+      this.channel.asyncOpen(this);
     } catch (e) {
       this._deferred.reject(e);
     }

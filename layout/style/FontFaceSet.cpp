@@ -172,9 +172,6 @@ FontFaceSet::~FontFaceSet() {
   MOZ_ASSERT(!ServoStyleSet::IsInServoTraversal());
 
   Disconnect();
-  for (auto it = mLoaders.Iter(); !it.Done(); it.Next()) {
-    it.Get()->GetKey()->Cancel();
-  }
 }
 
 JSObject* FontFaceSet::WrapObject(JSContext* aContext,
@@ -191,6 +188,12 @@ void FontFaceSet::Disconnect() {
     // been unlinked from the document.
     mDocument->CSSLoader()->RemoveObserver(this);
   }
+
+  for (auto it = mLoaders.Iter(); !it.Done(); it.Next()) {
+    it.Get()->GetKey()->Cancel();
+  }
+
+  mLoaders.Clear();
 }
 
 void FontFaceSet::RemoveDOMContentLoadedListener() {
@@ -417,6 +420,16 @@ bool FontFaceSet::HasRuleFontFace(FontFace* aFontFace) {
 }
 #endif
 
+bool IsPdfJs(nsIPrincipal* aPrincipal) {
+  if (!aPrincipal) {
+    return false;
+  }
+  nsCOMPtr<nsIURI> uri;
+  aPrincipal->GetURI(getter_AddRefs(uri));
+  return uri && uri->GetSpecOrDefault().EqualsLiteral(
+                    "resource://pdf.js/web/viewer.html");
+}
+
 void FontFaceSet::Add(FontFace& aFontFace, ErrorResult& aRv) {
   FlushUserFontSet();
 
@@ -449,6 +462,16 @@ void FontFaceSet::Add(FontFace& aFontFace, ErrorResult& aRv) {
   MarkUserFontSetDirty();
   mHasLoadingFontFacesIsDirty = true;
   CheckLoadingStarted();
+  RefPtr<dom::Document> clonedDoc = mDocument->GetLatestStaticClone();
+  if (clonedDoc) {
+    // The document is printing, copy the font to the static clone as well.
+    nsCOMPtr<nsIPrincipal> principal = mDocument->GetPrincipal();
+    if (principal->IsSystemPrincipal() || IsPdfJs(principal)) {
+      ErrorResult rv;
+      clonedDoc->Fonts()->Add(aFontFace, rv);
+      MOZ_ASSERT(!rv.Failed());
+    }
+  }
 }
 
 void FontFaceSet::Clear() {
@@ -581,6 +604,7 @@ nsresult FontFaceSet::StartLoad(gfxUserFontEntry* aUserFontEntry,
 
   RefPtr<nsFontFaceLoader> fontLoader = new nsFontFaceLoader(
       aUserFontEntry, aFontFaceSrc->mURI->get(), this, channel);
+  mLoaders.PutEntry(fontLoader);
 
   if (LOG_ENABLED()) {
     LOG(
@@ -632,13 +656,12 @@ nsresult FontFaceSet::StartLoad(gfxUserFontEntry* aUserFontEntry,
       aFontFaceSrc->mURI->get(), mDocument->GetDocumentURI(),
       nsINetworkPredictor::LEARN_LOAD_SUBRESOURCE, loadGroup);
 
-  rv = channel->AsyncOpen2(streamLoader);
+  rv = channel->AsyncOpen(streamLoader);
   if (NS_FAILED(rv)) {
     fontLoader->DropChannel();  // explicitly need to break ref cycle
   }
 
   if (NS_SUCCEEDED(rv)) {
-    mLoaders.PutEntry(fontLoader);
     fontLoader->StartedLoading(streamLoader);
     // let the font entry remember the loader, in case we need to cancel it
     aUserFontEntry->SetLoader(fontLoader);
@@ -1347,7 +1370,7 @@ nsresult FontFaceSet::SyncLoadFontData(gfxUserFontEntry* aFontToLoad,
 
   // blocking stream is OK for data URIs
   nsCOMPtr<nsIInputStream> stream;
-  rv = channel->Open2(getter_AddRefs(stream));
+  rv = channel->Open(getter_AddRefs(stream));
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint64_t bufferLength64;

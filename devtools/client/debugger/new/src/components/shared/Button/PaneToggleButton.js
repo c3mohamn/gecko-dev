@@ -5,7 +5,7 @@
 // @flow
 import React, { PureComponent } from "react";
 import classnames from "classnames";
-import Svg from "../Svg";
+import AccessibleImage from "../AccessibleImage";
 import { CommandBarButton } from "./";
 import "./styles/PaneToggleButton.css";
 
@@ -23,7 +23,7 @@ class PaneToggleButton extends PureComponent<Props> {
 
   render() {
     const { position, collapsed, horizontal, handleClick } = this.props;
-    const title = !collapsed
+    const title = collapsed
       ? L10N.getStr("expandPanes")
       : L10N.getStr("collapsePanes");
 
@@ -33,10 +33,12 @@ class PaneToggleButton extends PureComponent<Props> {
           collapsed,
           vertical: !horizontal
         })}
-        onClick={() => handleClick(position, collapsed)}
+        onClick={() => handleClick(position, !collapsed)}
         title={title}
       >
-        <Svg name="togglePanes" />
+        <AccessibleImage
+          className={collapsed ? "pane-expand" : "pane-collapse"}
+        />
       </CommandBarButton>
     );
   }

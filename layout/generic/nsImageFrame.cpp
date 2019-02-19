@@ -53,7 +53,7 @@
 #include "nsNameSpaceManager.h"
 #include <algorithm>
 #ifdef ACCESSIBILITY
-#include "nsAccessibilityService.h"
+#  include "nsAccessibilityService.h"
 #endif
 #include "nsLayoutUtils.h"
 #include "nsDisplayList.h"
@@ -92,6 +92,8 @@ using namespace mozilla::gfx;
 using namespace mozilla::image;
 using namespace mozilla::layers;
 
+using mozilla::layout::TextDrawTarget;
+
 // sizes (pixels) for image icon, padding and border frame
 #define ICON_SIZE (16)
 #define ICON_PADDING (3)
@@ -113,8 +115,8 @@ static bool HaveSpecifiedSize(const nsStylePosition* aStylePosition) {
   // check the width and height values in the reflow state's style struct
   // - if width and height are specified as either coord or percentage, then
   //   the size of the image frame is constrained
-  return aStylePosition->mWidth.IsCoordPercentCalcUnit() &&
-         aStylePosition->mHeight.IsCoordPercentCalcUnit();
+  return aStylePosition->mWidth.IsLengthPercentage() &&
+         aStylePosition->mHeight.IsLengthPercentage();
 }
 
 // Decide whether we can optimize away reflows that result from the
@@ -130,20 +132,21 @@ static bool HaveFixedSize(const ReflowInput& aReflowInput) {
 }
 
 nsIFrame* NS_NewImageFrame(nsIPresShell* aPresShell, ComputedStyle* aStyle) {
-  return new (aPresShell)
-      nsImageFrame(aStyle, nsImageFrame::Kind::ImageElement);
+  return new (aPresShell) nsImageFrame(aStyle, aPresShell->GetPresContext(),
+                                       nsImageFrame::Kind::ImageElement);
 }
 
 nsIFrame* NS_NewImageFrameForContentProperty(nsIPresShell* aPresShell,
                                              ComputedStyle* aStyle) {
-  return new (aPresShell)
-      nsImageFrame(aStyle, nsImageFrame::Kind::ContentProperty);
+  return new (aPresShell) nsImageFrame(aStyle, aPresShell->GetPresContext(),
+                                       nsImageFrame::Kind::ContentProperty);
 }
 
 nsIFrame* NS_NewImageFrameForGeneratedContentIndex(nsIPresShell* aPresShell,
                                                    ComputedStyle* aStyle) {
   return new (aPresShell)
-      nsImageFrame(aStyle, nsImageFrame::Kind::ContentPropertyAtIndex);
+      nsImageFrame(aStyle, aPresShell->GetPresContext(),
+                   nsImageFrame::Kind::ContentPropertyAtIndex);
 }
 
 bool nsImageFrame::ShouldShowBrokenImageIcon() const {
@@ -169,13 +172,15 @@ bool nsImageFrame::ShouldShowBrokenImageIcon() const {
 
 nsImageFrame* nsImageFrame::CreateContinuingFrame(nsIPresShell* aPresShell,
                                                   ComputedStyle* aStyle) const {
-  return new (aPresShell) nsImageFrame(aStyle, mKind);
+  return new (aPresShell)
+      nsImageFrame(aStyle, aPresShell->GetPresContext(), mKind);
 }
 
 NS_IMPL_FRAMEARENA_HELPERS(nsImageFrame)
 
-nsImageFrame::nsImageFrame(ComputedStyle* aStyle, ClassID aID, Kind aKind)
-    : nsAtomicContainerFrame(aStyle, aID),
+nsImageFrame::nsImageFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
+                           ClassID aID, Kind aKind)
+    : nsAtomicContainerFrame(aStyle, aPresContext, aID),
       mComputedSize(0, 0),
       mIntrinsicRatio(0, 0),
       mKind(aKind),
@@ -735,7 +740,9 @@ void nsImageFrame::InvalidateSelf(const nsIntRect* aLayerInvalidRect,
   // Check if WebRender has interacted with this frame. If it has
   // we need to let it know that things have changed.
   const auto type = DisplayItemType::TYPE_IMAGE;
-  if (WebRenderUserData::ProcessInvalidateForImage(this, type)) {
+  const auto producerId =
+      mImage ? mImage->GetProducerId() : kContainerProducerID_Invalid;
+  if (WebRenderUserData::ProcessInvalidateForImage(this, type, producerId)) {
     return;
   }
 
@@ -1262,7 +1269,7 @@ void nsImageFrame::DisplayAltText(nsPresContext* aPresContext,
 
 struct nsRecessedBorder : public nsStyleBorder {
   nsRecessedBorder(nscoord aBorderWidth, nsPresContext* aPresContext)
-      : nsStyleBorder(aPresContext) {
+      : nsStyleBorder(*aPresContext->Document()) {
     NS_FOR_CSS_SIDES(side) {
       BorderColorFor(side) = StyleComplexColor::Black();
       mBorder.Side(side) = aBorderWidth;
@@ -1618,15 +1625,17 @@ ImgDrawResult nsImageFrame::DisplayAltFeedbackWithoutLayer(
                   size);
 
       const int32_t factor = PresContext()->AppUnitsPerDevPixel();
-      const LayoutDeviceRect destRect(
-          LayoutDeviceRect::FromAppUnits(dest, factor));
+      LayoutDeviceRect destRect(LayoutDeviceRect::FromAppUnits(dest, factor));
+      destRect.Round();
+
       Maybe<SVGImageContext> svgContext;
       IntSize decodeSize =
           nsLayoutUtils::ComputeImageContainerDrawingParameters(
               imgCon, this, destRect, aSc, aFlags, svgContext);
       RefPtr<ImageContainer> container;
-      result = imgCon->GetImageContainerAtSize(
-          aManager->LayerManager(), decodeSize, svgContext, aFlags, getter_AddRefs(container));
+      result = imgCon->GetImageContainerAtSize(aManager->LayerManager(),
+                                               decodeSize, svgContext, aFlags,
+                                               getter_AddRefs(container));
       if (container) {
         bool wrResult = aManager->CommandBuilder().PushImage(
             aItem, container, aBuilder, aResources, aSc, destRect, bounds);
@@ -1896,8 +1905,10 @@ bool nsDisplayImage::CreateWebRenderCommands(
   }
 
   const int32_t factor = mFrame->PresContext()->AppUnitsPerDevPixel();
-  const LayoutDeviceRect destRect(
+  LayoutDeviceRect destRect(
       LayoutDeviceRect::FromAppUnits(GetDestRect(), factor));
+  destRect.Round();
+
   Maybe<SVGImageContext> svgContext;
   IntSize decodeSize = nsLayoutUtils::ComputeImageContainerDrawingParameters(
       mImage, mFrame, destRect, aSc, flags, svgContext);
@@ -2307,8 +2318,8 @@ nsresult nsImageFrame::GetCursor(const nsPoint& aPoint,
           PresShell()->StyleSet()->ResolveStyleFor(area->AsElement(),
                                                    LazyComputeBehavior::Allow);
       FillCursorInformationFromStyle(areaStyle->StyleUI(), aCursor);
-      if (NS_STYLE_CURSOR_AUTO == aCursor.mCursor) {
-        aCursor.mCursor = NS_STYLE_CURSOR_DEFAULT;
+      if (StyleCursorKind::Auto == aCursor.mCursor) {
+        aCursor.mCursor = StyleCursorKind::Default;
       }
       return NS_OK;
     }
@@ -2608,11 +2619,10 @@ static bool IsInAutoWidthTableCellForQuirk(nsIFrame* aFrame) {
     return false;
   // Check if the parent of the closest nsBlockFrame has auto width.
   nsBlockFrame* ancestor = nsLayoutUtils::FindNearestBlockAncestor(aFrame);
-  if (ancestor->Style()->GetPseudo() == nsCSSAnonBoxes::cellContent()) {
+  if (ancestor->Style()->GetPseudoType() == PseudoStyleType::cellContent) {
     // Assume direct parent is a table cell frame.
     nsFrame* grandAncestor = static_cast<nsFrame*>(ancestor->GetParent());
-    return grandAncestor &&
-           grandAncestor->StylePosition()->mWidth.GetUnit() == eStyleUnit_Auto;
+    return grandAncestor && grandAncestor->StylePosition()->mWidth.IsAuto();
   }
   return false;
 }

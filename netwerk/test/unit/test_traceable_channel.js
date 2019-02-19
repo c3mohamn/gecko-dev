@@ -3,8 +3,8 @@
 // response. Make sure that body received by original channel's listener
 // is correctly modified.
 
-ChromeUtils.import("resource://testing-common/httpd.js");
-ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
+const {HttpServer} = ChromeUtils.import("resource://testing-common/httpd.js");
+const {NetUtil} = ChromeUtils.import("resource://gre/modules/NetUtil.jsm");
 
 var httpserver = new HttpServer();
 httpserver.start(-1);
@@ -145,6 +145,6 @@ function run_test() {
   httpserver.registerPathHandler("/testdir", test_handler);
 
   var channel = make_channel("http://localhost:" + PORT + "/testdir");
-  channel.asyncOpen2(new ChannelListener(channel_finished));
+  channel.asyncOpen(new ChannelListener(channel_finished));
   do_test_pending();
 }

@@ -863,6 +863,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
 
   bool ShouldResistFingerprinting();
 
+  bool DidFireDocElemInserted() const { return mDidFireDocElemInserted; }
+  void SetDidFireDocElemInserted() { mDidFireDocElemInserted = true; }
+
   mozilla::dom::Nullable<mozilla::dom::WindowProxyHolder> OpenDialog(
       JSContext* aCx, const nsAString& aUrl, const nsAString& aName,
       const nsAString& aOptions,
@@ -903,8 +906,6 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   mozilla::dom::ChromeMessageBroadcaster* MessageManager();
   mozilla::dom::ChromeMessageBroadcaster* GetGroupMessageManager(
       const nsAString& aGroup);
-  void BeginWindowMove(mozilla::dom::Event& aMouseDownEvent,
-                       mozilla::ErrorResult& aError);
 
   already_AddRefed<mozilla::dom::Promise> PromiseDocumentFlushed(
       mozilla::dom::PromiseDocumentFlushedCallback& aCallback,
@@ -1255,6 +1256,10 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   void CallDocumentFlushedResolvers();
   void CancelDocumentFlushedResolvers();
 
+  // Return true if we need to notify browsing context to reset its user gesture
+  // activation flag.
+  bool ShouldResetBrowsingContextUserGestureActivation();
+
  public:
   // Dispatch a runnable related to the global.
   virtual nsresult Dispatch(mozilla::TaskCategory aCategory,
@@ -1314,6 +1319,10 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   // true if tab navigation has occurred for this window. Focus rings
   // should be displayed.
   bool mFocusByKeyOccurred : 1;
+
+  // True if we have notified document-element-inserted observers for this
+  // document.
+  bool mDidFireDocElemInserted : 1;
 
   // Indicates whether this window wants gamepad input events
   bool mHasGamepad : 1;

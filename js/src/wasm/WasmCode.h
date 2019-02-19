@@ -312,7 +312,6 @@ enum class MemoryUsage { None = false, Unshared = 1, Shared = 2 };
 struct MetadataCacheablePod {
   ModuleKind kind;
   MemoryUsage memoryUsage;
-  HasGcTypes temporaryGcTypesConfigured;
   uint32_t minMemoryLength;
   uint32_t globalDataLength;
   Maybe<uint32_t> maxMemoryLength;
@@ -323,7 +322,6 @@ struct MetadataCacheablePod {
   explicit MetadataCacheablePod(ModuleKind kind)
       : kind(kind),
         memoryUsage(MemoryUsage::None),
-        temporaryGcTypesConfigured(HasGcTypes::False),
         minMemoryLength(0),
         globalDataLength(0),
         filenameIsURL(false) {}
@@ -394,7 +392,7 @@ struct Metadata : public ShareableBase<Metadata>, public MetadataCacheablePod {
     return getFuncName(NameContext::BeforeLocation, funcIndex, name);
   }
 
-  WASM_DECLARE_SERIALIZABLE_VIRTUAL(Metadata);
+  WASM_DECLARE_SERIALIZABLE(Metadata);
 };
 
 typedef RefPtr<Metadata> MutableMetadata;
@@ -501,8 +499,7 @@ class LazyStubTier {
   LazyFuncExportVector exports_;
   size_t lastStubSegmentIndex_;
 
-  bool createMany(HasGcTypes gcTypesEnabled,
-                  const Uint32Vector& funcExportIndices,
+  bool createMany(const Uint32Vector& funcExportIndices,
                   const CodeTier& codeTier, size_t* stubSegmentIndex);
 
  public:
@@ -523,8 +520,7 @@ class LazyStubTier {
   // them in a single stub. Jit entries won't be used until
   // setJitEntries() is actually called, after the Code owner has committed
   // tier2.
-  bool createTier2(HasGcTypes gcTypesConfigured,
-                   const Uint32Vector& funcExportIndices,
+  bool createTier2(const Uint32Vector& funcExportIndices,
                    const CodeTier& codeTier, Maybe<size_t>* stubSegmentIndex);
   void setJitEntries(const Maybe<size_t>& stubSegmentIndex, const Code& code);
 
@@ -727,6 +723,8 @@ class Code : public ShareableBase<Code> {
                                     const LinkData& linkData,
                                     Metadata& metadata, SharedCode* code);
 };
+
+void PatchDebugSymbolicAccesses(uint8_t* codeBase, jit::MacroAssembler& masm);
 
 }  // namespace wasm
 }  // namespace js

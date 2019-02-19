@@ -8,8 +8,6 @@ package org.mozilla.geckoview;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.Collections;
-import java.util.Map;
 
 import android.app.Service;
 import android.graphics.Rect;
@@ -20,37 +18,22 @@ import android.support.annotation.AnyThread;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.util.ArrayMap;
 
 import org.mozilla.gecko.EventDispatcher;
 import org.mozilla.gecko.util.GeckoBundle;
-import org.mozilla.geckoview.GeckoSession.TrackingProtectionDelegate;
 
 @AnyThread
-public final class GeckoRuntimeSettings implements Parcelable {
-
+public final class GeckoRuntimeSettings extends RuntimeSettings {
     /**
      * Settings builder used to construct the settings object.
      */
     @AnyThread
-    public static final class Builder {
-        private final GeckoRuntimeSettings mSettings;
-
-        public Builder() {
-            mSettings = new GeckoRuntimeSettings();
-        }
-
-        public Builder(final GeckoRuntimeSettings settings) {
-            mSettings = new GeckoRuntimeSettings(settings);
-        }
-
-        /**
-         * Finalize and return the settings.
-         *
-         * @return The constructed settings.
-         */
-        public @NonNull GeckoRuntimeSettings build() {
-            return new GeckoRuntimeSettings(mSettings);
+    public static final class Builder
+            extends RuntimeSettings.Builder<GeckoRuntimeSettings> {
+        @Override
+        protected @NonNull GeckoRuntimeSettings newSettings(
+                final GeckoRuntimeSettings settings) {
+            return new GeckoRuntimeSettings(settings);
         }
 
         /**
@@ -62,7 +45,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
 
          */
         public @NonNull Builder useContentProcessHint(final boolean use) {
-            mSettings.mUseContentProcess = use;
+            getSettings().mUseContentProcess = use;
             return this;
         }
 
@@ -76,7 +59,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
             if (args == null) {
                 throw new IllegalArgumentException("Arguments must not  be null");
             }
-            mSettings.mArgs = args;
+            getSettings().mArgs = args;
             return this;
         }
 
@@ -90,7 +73,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
             if (extras == null) {
                 throw new IllegalArgumentException("Extras must not  be null");
             }
-            mSettings.mExtras = extras;
+            getSettings().mExtras = extras;
             return this;
         }
 
@@ -102,7 +85,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return This Builder instance.
          */
         public @NonNull Builder javaScriptEnabled(final boolean flag) {
-            mSettings.mJavaScript.set(flag);
+            getSettings().mJavaScript.set(flag);
             return this;
         }
 
@@ -113,7 +96,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return This Builder instance.
          */
         public @NonNull Builder remoteDebuggingEnabled(final boolean enabled) {
-            mSettings.mRemoteDebugging.set(enabled);
+            getSettings().mRemoteDebugging.set(enabled);
             return this;
         }
 
@@ -125,7 +108,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return This Builder instance.
          */
         public @NonNull Builder webFontsEnabled(final boolean flag) {
-            mSettings.mWebFonts.set(flag ? 1 : 0);
+            getSettings().mWebFonts.set(flag ? 1 : 0);
             return this;
         }
 
@@ -138,7 +121,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return This Builder.
          */
         public @NonNull Builder pauseForDebugger(boolean enabled) {
-            mSettings.mDebugPause = enabled;
+            getSettings().mDebugPause = enabled;
             return this;
         }
         /**
@@ -152,46 +135,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return This Builder.
          */
         public @NonNull Builder useMaxScreenDepth(boolean enable) {
-            mSettings.mUseMaxScreenDepth = enable;
-            return this;
-        }
-
-        /**
-         * Set cookie storage behavior.
-         *
-         * @param behavior The storage behavior that should be applied.
-         *                 Use one of the {@link #COOKIE_ACCEPT_ALL COOKIE_ACCEPT_*} flags.
-         * @return The Builder instance.
-         */
-        public @NonNull Builder cookieBehavior(@CookieBehavior int behavior) {
-            mSettings.mCookieBehavior.set(behavior);
-            return this;
-        }
-
-        /**
-         * Set the cookie lifetime.
-         *
-         * @param lifetime The enforced cookie lifetime.
-         *                 Use one of the {@link #COOKIE_LIFETIME_NORMAL COOKIE_LIFETIME_*} flags.
-         * @return The Builder instance.
-         */
-        public @NonNull Builder cookieLifetime(@CookieLifetime int lifetime) {
-            mSettings.mCookieLifetime.set(lifetime);
-            return this;
-        }
-
-        /**
-         * Set tracking protection blocking categories.
-         *
-         * @param categories The categories of trackers that should be blocked.
-         *                   Use one or more of the
-         *                   {@link TrackingProtectionDelegate#CATEGORY_AD TrackingProtectionDelegate.CATEGORY_*} flags.
-         * @return This Builder instance.
-         **/
-        public @NonNull Builder trackingProtectionCategories(
-                @TrackingProtectionDelegate.Category int categories) {
-            mSettings.mTrackingProtection
-                     .set(TrackingProtection.buildPrefValue(categories));
+            getSettings().mUseMaxScreenDepth = enable;
             return this;
         }
 
@@ -206,7 +150,65 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return The builder instance.
          */
         public @NonNull Builder consoleOutput(boolean enabled) {
-            mSettings.mConsoleOutput.set(enabled);
+            getSettings().mConsoleOutput.set(enabled);
+            return this;
+        }
+
+        /**
+         * Set whether or not font sizes in web content should be automatically scaled according to
+         * the device's current system font scale setting.
+         *
+         * @param enabled A flag determining whether or not font sizes should be scaled automatically
+         *                to match the device's system font scale.
+         * @return The builder instance.
+         */
+        public @NonNull Builder automaticFontSizeAdjustment(boolean enabled) {
+            getSettings().setAutomaticFontSizeAdjustment(enabled);
+            return this;
+        }
+
+        /**
+         * Set a font size factor that will operate as a global text zoom. All font sizes will be
+         * multiplied by this factor.
+         *
+         * <p>The default factor is 1.0.
+         *
+         * <p>This setting cannot be modified if
+         * {@link Builder#automaticFontSizeAdjustment automatic font size adjustment}
+         * has already been enabled.
+         *
+         * @param fontSizeFactor The factor to be used for scaling all text. Setting a value of 0
+         *                       disables both this feature and
+         *                       {@link Builder#fontInflation font inflation}.
+         * @return The builder instance.
+         */
+        public @NonNull Builder fontSizeFactor(float fontSizeFactor) {
+            getSettings().setFontSizeFactor(fontSizeFactor);
+            return this;
+        }
+
+        /**
+         * Set whether or not font inflation for non mobile-friendly pages should be enabled. The
+         * default value of this setting is <code>false</code>.
+         *
+         * <p>When enabled, font sizes will be increased on all pages that are lacking a
+         * &lt;meta&gt; viewport tag and have been loaded in a session using
+         * {@link GeckoSessionSettings#VIEWPORT_MODE_MOBILE}. To improve readability, the font
+         * inflation logic will attempt to increase font sizes for the main text content of the page
+         * only.
+         *
+         * <p>The magnitude of font inflation applied depends on the
+         * {@link Builder#fontSizeFactor font size factor} currently in use.
+         *
+         * <p>This setting cannot be modified if
+         * {@link Builder#automaticFontSizeAdjustment automatic font size adjustment}
+         * has already been enabled.
+         *
+         * @param enabled A flag determining whether or not font inflation should be enabled.
+         * @return The builder instance.
+         */
+        public @NonNull Builder fontInflation(boolean enabled) {
+            getSettings().setFontInflationEnabled(enabled);
             return this;
         }
 
@@ -217,38 +219,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return The builder instance.
          */
         public @NonNull Builder displayDensityOverride(float density) {
-            mSettings.mDisplayDensityOverride = density;
-            return this;
-        }
-
-        /** Set whether or not known malware sites should be blocked.
-         *
-         * Note: For each blocked site, {@link GeckoSession.NavigationDelegate#onLoadError}
-         * with error category {@link WebRequestError#ERROR_CATEGORY_SAFEBROWSING}
-         * is called.
-         *
-         * @param enabled A flag determining whether or not to block malware
-         *                sites.
-         * @return The builder instance.
-         */
-        public @NonNull Builder blockMalware(boolean enabled) {
-            mSettings.mSafebrowsingMalware.set(enabled);
-            return this;
-        }
-
-        /**
-         * Set whether or not known phishing sites should be blocked.
-         *
-         * Note: For each blocked site, {@link GeckoSession.NavigationDelegate#onLoadError}
-         * with error category {@link WebRequestError#ERROR_CATEGORY_SAFEBROWSING}
-         * is called.
-         *
-         * @param enabled A flag determining whether or not to block phishing
-         *                sites.
-         * @return The builder instance.
-         */
-        public @NonNull Builder blockPhishing(boolean enabled) {
-            mSettings.mSafebrowsingPhishing.set(enabled);
+            getSettings().mDisplayDensityOverride = density;
             return this;
         }
 
@@ -259,7 +230,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return The builder instance.
          */
         public @NonNull Builder displayDpiOverride(int dpi) {
-            mSettings.mDisplayDpiOverride = dpi;
+            getSettings().mDisplayDpiOverride = dpi;
             return this;
         }
 
@@ -271,8 +242,8 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return The builder instance.
          */
         public @NonNull Builder screenSizeOverride(int width, int height) {
-            mSettings.mScreenWidthOverride = width;
-            mSettings.mScreenHeightOverride = height;
+            getSettings().mScreenWidthOverride = width;
+            getSettings().mScreenHeightOverride = height;
             return this;
         }
 
@@ -310,7 +281,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @see GeckoRuntime#ACTION_CRASHED
          */
         public @NonNull Builder crashHandler(final Class<? extends Service> handler) {
-            mSettings.mCrashHandler = handler;
+            getSettings().mCrashHandler = handler;
             return this;
         }
 
@@ -321,89 +292,53 @@ public final class GeckoRuntimeSettings implements Parcelable {
          * @return The builder instance.
          */
         public @NonNull Builder locales(String[] requestedLocales) {
-            mSettings.mRequestedLocales = requestedLocales;
+            getSettings().mRequestedLocales = requestedLocales;
+            return this;
+        }
+
+        public @NonNull Builder contentBlocking(
+                final @NonNull ContentBlocking.Settings cb) {
+            getSettings().mContentBlocking = cb;
+            return this;
+        }
+
+        /**
+         * Sets video autoplay mode.
+         * May be either {@link GeckoRuntimeSettings#AUTOPLAY_DEFAULT_ALLOWED} or {@link GeckoRuntimeSettings#AUTOPLAY_DEFAULT_BLOCKED}
+         * @param autoplay Allows or blocks video autoplay.
+         * @return This Builder instance.
+         */
+        public @NonNull Builder autoplayDefault(@AutoplayDefault int autoplay) {
+            getSettings().mAutoplayDefault.set(autoplay);
             return this;
         }
     }
 
-    /* package */ GeckoRuntime runtime;
+    private GeckoRuntime mRuntime;
     /* package */ boolean mUseContentProcess;
     /* package */ String[] mArgs;
     /* package */ Bundle mExtras;
-    /* package */ int prefCount;
 
-    private class Pref<T> {
-        public final String name;
-        public final T defaultValue;
-        private T mValue;
-        private boolean mIsSet;
+    /* package */ ContentBlocking.Settings mContentBlocking;
 
-        public Pref(final String name, final T defaultValue) {
-            GeckoRuntimeSettings.this.prefCount++;
-
-            this.name = name;
-            this.defaultValue = defaultValue;
-            mValue = defaultValue;
-        }
-
-        public void set(T newValue) {
-            mValue = newValue;
-            mIsSet = true;
-
-            // There is a flush() in GeckoRuntimeSettings, so be explicit.
-            this.flush();
-        }
-
-        public T get() {
-            return mValue;
-        }
-
-        private void flush() {
-            final GeckoRuntime runtime = GeckoRuntimeSettings.this.runtime;
-            if (runtime != null) {
-                final GeckoBundle prefs = new GeckoBundle(1);
-                intoBundle(prefs);
-                runtime.setDefaultPrefs(prefs);
-            }
-        }
-
-        public void intoBundle(final GeckoBundle bundle) {
-            final T value = mIsSet ? mValue : defaultValue;
-            if (value instanceof String) {
-                bundle.putString(name, (String)value);
-            } else if (value instanceof Integer) {
-                bundle.putInt(name, (Integer)value);
-            } else if (value instanceof Boolean) {
-                bundle.putBoolean(name, (Boolean)value);
-            } else {
-                throw new UnsupportedOperationException("Unhandled pref type for " + name);
-            }
-        }
+    public @NonNull ContentBlocking.Settings getContentBlocking() {
+        return mContentBlocking;
     }
 
-    /* package */ Pref<Boolean> mJavaScript = new Pref<Boolean>(
+    /* package */ final Pref<Boolean> mJavaScript = new Pref<Boolean>(
         "javascript.enabled", true);
-    /* package */ Pref<Boolean> mRemoteDebugging = new Pref<Boolean>(
+    /* package */ final Pref<Boolean> mRemoteDebugging = new Pref<Boolean>(
         "devtools.debugger.remote-enabled", false);
-    /* package */ Pref<Integer> mWebFonts = new Pref<Integer>(
+    /* package */ final Pref<Integer> mWebFonts = new Pref<Integer>(
         "browser.display.use_document_fonts", 1);
-    /* package */ Pref<Integer> mCookieBehavior = new Pref<Integer>(
-        "network.cookie.cookieBehavior", COOKIE_ACCEPT_ALL);
-    /* package */ Pref<Integer> mCookieLifetime = new Pref<Integer>(
-        "network.cookie.lifetimePolicy", COOKIE_LIFETIME_NORMAL);
-    /* package */ Pref<String> mTrackingProtection = new Pref<String>(
-        "urlclassifier.trackingTable",
-        TrackingProtection.buildPrefValue(
-            TrackingProtectionDelegate.CATEGORY_TEST |
-            TrackingProtectionDelegate.CATEGORY_ANALYTIC |
-            TrackingProtectionDelegate.CATEGORY_SOCIAL |
-            TrackingProtectionDelegate.CATEGORY_AD));
-    /* package */ Pref<Boolean> mConsoleOutput = new Pref<Boolean>(
+    /* package */ final Pref<Boolean> mConsoleOutput = new Pref<Boolean>(
         "geckoview.console.enabled", false);
-    /* package */ Pref<Boolean> mSafebrowsingMalware = new Pref<Boolean>(
-        "browser.safebrowsing.malware.enabled", true);
-    /* package */ Pref<Boolean> mSafebrowsingPhishing = new Pref<Boolean>(
-        "browser.safebrowsing.phishing.enabled", true);
+    /* package */ final Pref<Integer> mAutoplayDefault = new Pref<Integer>(
+        "media.autoplay.default", AUTOPLAY_DEFAULT_BLOCKED);
+    /* package */ final Pref<Integer> mFontSizeFactor = new Pref<>(
+        "font.size.systemFontScale", 100);
+    /* package */ final Pref<Integer> mFontInflationMinTwips = new Pref<>(
+        "font.size.inflation.minTwips", 0);
 
     /* package */ boolean mDebugPause;
     /* package */ boolean mUseMaxScreenDepth;
@@ -414,40 +349,46 @@ public final class GeckoRuntimeSettings implements Parcelable {
     /* package */ Class<? extends Service> mCrashHandler;
     /* package */ String[] mRequestedLocales;
 
-    private final Pref<?>[] mPrefs = new Pref<?>[] {
-        mCookieBehavior, mCookieLifetime, mConsoleOutput,
-        mJavaScript, mRemoteDebugging, mSafebrowsingMalware,
-        mSafebrowsingPhishing, mTrackingProtection, mWebFonts,
-    };
+    /**
+     * Attach and commit the settings to the given runtime.
+     * @param runtime The runtime to attach to.
+     */
+    /* package */ void attachTo(final @NonNull GeckoRuntime runtime) {
+        mRuntime = runtime;
+        commit();
+    }
+
+    @Override // RuntimeSettings
+    public @Nullable GeckoRuntime getRuntime() {
+        return mRuntime;
+    }
 
     /* package */ GeckoRuntimeSettings() {
         this(null);
     }
 
     /* package */ GeckoRuntimeSettings(final @Nullable GeckoRuntimeSettings settings) {
-        if (BuildConfig.DEBUG && prefCount != mPrefs.length) {
-            throw new AssertionError("Add new pref to prefs list");
-        }
+        super(/* parent */ null);
 
         if (settings == null) {
             mArgs = new String[0];
             mExtras = new Bundle();
+            mContentBlocking = new ContentBlocking.Settings(
+                    this /* parent */, null /* settings */);
             return;
         }
+
+        updateSettings(settings);
+    }
+
+    private void updateSettings(final @NonNull GeckoRuntimeSettings settings) {
+        updatePrefs(settings);
 
         mUseContentProcess = settings.getUseContentProcessHint();
         mArgs = settings.getArguments().clone();
         mExtras = new Bundle(settings.getExtras());
-
-        for (int i = 0; i < mPrefs.length; i++) {
-            if (!settings.mPrefs[i].mIsSet) {
-                continue;
-            }
-            // We know this is safe.
-            @SuppressWarnings("unchecked")
-            final Pref<Object> uncheckedPref = (Pref<Object>) mPrefs[i];
-            uncheckedPref.set(settings.mPrefs[i].get());
-        }
+        mContentBlocking = new ContentBlocking.Settings(
+                this /* parent */, settings.mContentBlocking);
 
         mDebugPause = settings.mDebugPause;
         mUseMaxScreenDepth = settings.mUseMaxScreenDepth;
@@ -459,32 +400,9 @@ public final class GeckoRuntimeSettings implements Parcelable {
         mRequestedLocales = settings.mRequestedLocales;
     }
 
-    /* package */ Map<String, Object> getPrefsMap() {
-        final ArrayMap<String, Object> prefs = new ArrayMap<>(mPrefs.length);
-        for (final Pref<?> pref : mPrefs) {
-            prefs.put(pref.name, pref.get());
-        }
-
-        return Collections.unmodifiableMap(prefs);
-    }
-
-    /* package */ void flush() {
-        flushLocales();
-
-        // Prefs are flushed individually when they are set, and
-        // initial values are handled by GeckoRuntime itself.
-        // We may have user prefs due to previous versions of
-        // this class operating differently, though, so we'll
-        // send a message to clear any user prefs that may have
-        // been set on the prefs we manage.
-        final String[] names = new String[mPrefs.length];
-        for (int i = 0; i < mPrefs.length; i++) {
-            names[i] = mPrefs[i].name;
-        }
-
-        final GeckoBundle data = new GeckoBundle(1);
-        data.putStringArray("names", names);
-        EventDispatcher.getInstance().dispatch("GeckoView:ResetUserPrefs", data);
+    /* package */ void commit() {
+        commitLocales();
+        commitResetPrefs();
     }
 
     /**
@@ -530,7 +448,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
      * @return This GeckoRuntimeSettings instance.
      */
     public @NonNull GeckoRuntimeSettings setJavaScriptEnabled(final boolean flag) {
-        mJavaScript.set(flag);
+        mJavaScript.commit(flag);
         return this;
     }
 
@@ -550,7 +468,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
      * @return This GeckoRuntimeSettings instance.
      */
     public @NonNull GeckoRuntimeSettings setRemoteDebuggingEnabled(final boolean enabled) {
-        mRemoteDebugging.set(enabled);
+        mRemoteDebugging.commit(enabled);
         return this;
     }
 
@@ -570,7 +488,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
      * @return This GeckoRuntimeSettings instance.
      */
     public @NonNull GeckoRuntimeSettings setWebFontsEnabled(final boolean flag) {
-        mWebFonts.set(flag ? 1 : 0);
+        mWebFonts.commit(flag ? 1 : 0);
         return this;
     }
 
@@ -645,137 +563,16 @@ public final class GeckoRuntimeSettings implements Parcelable {
      */
     public void setLocales(@Nullable String[] requestedLocales) {
         mRequestedLocales = requestedLocales;
-        flushLocales();
+        commitLocales();
     }
 
-    private void flushLocales() {
+    private void commitLocales() {
         if (mRequestedLocales == null) {
             return;
         }
         final GeckoBundle data = new GeckoBundle(1);
         data.putStringArray("requestedLocales", mRequestedLocales);
         EventDispatcher.getInstance().dispatch("GeckoView:SetLocale", data);
-    }
-
-    // Sync values with nsICookieService.idl.
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef({ COOKIE_ACCEPT_ALL, COOKIE_ACCEPT_FIRST_PARTY,
-              COOKIE_ACCEPT_NONE, COOKIE_ACCEPT_VISITED,
-              COOKIE_ACCEPT_NON_TRACKERS })
-    /* package */ @interface CookieBehavior {}
-
-    /**
-     * Accept first-party and third-party cookies and site data.
-     */
-    public static final int COOKIE_ACCEPT_ALL = 0;
-    /**
-     * Accept only first-party cookies and site data to block cookies which are
-     * not associated with the domain of the visited site.
-     */
-    public static final int COOKIE_ACCEPT_FIRST_PARTY = 1;
-    /**
-     * Do not store any cookies and site data.
-     */
-    public static final int COOKIE_ACCEPT_NONE = 2;
-    /**
-     * Accept first-party and third-party cookies and site data only from
-     * sites previously visited in a first-party context.
-     */
-    public static final int COOKIE_ACCEPT_VISITED = 3;
-    /**
-     * Accept only first-party and non-tracking third-party cookies and site data
-     * to block cookies which are not associated with the domain of the visited
-     * site set by known trackers.
-     */
-    public static final int COOKIE_ACCEPT_NON_TRACKERS = 4;
-
-    /**
-     * Get the assigned cookie storage behavior.
-     *
-     * @return The assigned behavior, as one of {@link #COOKIE_ACCEPT_ALL COOKIE_ACCEPT_*} flags.
-     */
-    public @CookieBehavior int getCookieBehavior() {
-        return mCookieBehavior.get();
-    }
-
-    /**
-     * Set cookie storage behavior.
-     *
-     * @param behavior The storage behavior that should be applied.
-     *                 Use one of the {@link #COOKIE_ACCEPT_ALL COOKIE_ACCEPT_*} flags.
-     * @return This GeckoRuntimeSettings instance.
-     */
-    public @NonNull GeckoRuntimeSettings setCookieBehavior(
-            @CookieBehavior int behavior) {
-        mCookieBehavior.set(behavior);
-        return this;
-    }
-
-    // Sync values with nsICookieService.idl.
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef({ COOKIE_LIFETIME_NORMAL, COOKIE_LIFETIME_RUNTIME,
-              COOKIE_LIFETIME_DAYS })
-    /* package */ @interface CookieLifetime {}
-
-    /**
-     * Accept default cookie lifetime.
-     */
-    public static final int COOKIE_LIFETIME_NORMAL = 0;
-    /**
-     * Downgrade cookie lifetime to this runtime's lifetime.
-     */
-    public static final int COOKIE_LIFETIME_RUNTIME = 2;
-    /**
-     * Limit cookie lifetime to N days.
-     * Defaults to 90 days.
-     */
-    public static final int COOKIE_LIFETIME_DAYS = 3;
-
-    /**
-     * Get the assigned cookie lifetime.
-     *
-     * @return The assigned lifetime, as one of {@link #COOKIE_LIFETIME_NORMAL COOKIE_LIFETIME_*} flags.
-     */
-    public @CookieBehavior int getCookieLifetime() {
-        return mCookieLifetime.get();
-    }
-
-    /**
-     * Set the cookie lifetime.
-     *
-     * @param lifetime The enforced cookie lifetime.
-     *                 Use one of the {@link #COOKIE_LIFETIME_NORMAL COOKIE_LIFETIME_*} flags.
-     * @return This GeckoRuntimeSettings instance.
-     */
-    public @NonNull GeckoRuntimeSettings setCookieLifetime(
-            @CookieLifetime int lifetime) {
-        mCookieLifetime.set(lifetime);
-        return this;
-    }
-
-    /**
-     * Get the set tracking protection blocking categories.
-     *
-     * @return categories The categories of trackers that are set to be blocked.
-     *                    Use one or more of the
-     *                    {@link TrackingProtectionDelegate#CATEGORY_AD TrackingProtectionDelegate.CATEGORY_*} flags.
-     **/
-    public @TrackingProtectionDelegate.Category int getTrackingProtectionCategories() {
-        return TrackingProtection.listToCategory(mTrackingProtection.get());
-    }
-
-    /**
-     * Set tracking protection blocking categories.
-     *
-     * @param categories The categories of trackers that should be blocked.
-     *                   Use one or more of the
-     *                   {@link TrackingProtectionDelegate#CATEGORY_AD TrackingProtectionDelegate.CATEGORY_*} flags.
-     * @return This GeckoRuntimeSettings instance.
-     **/
-    public @NonNull GeckoRuntimeSettings setTrackingProtectionCategories(
-            @TrackingProtectionDelegate.Category int categories) {
-        mTrackingProtection.set(TrackingProtection.buildPrefValue(categories));
-        return this;
     }
 
     /**
@@ -790,7 +587,7 @@ public final class GeckoRuntimeSettings implements Parcelable {
      */
 
     public @NonNull GeckoRuntimeSettings setConsoleOutputEnabled(boolean enabled) {
-        mConsoleOutput.set(enabled);
+        mConsoleOutput.commit(enabled);
         return this;
     }
 
@@ -804,68 +601,166 @@ public final class GeckoRuntimeSettings implements Parcelable {
     }
 
     /**
-     * Set whether or not known malware sites should be blocked.
+     * Set whether or not font sizes in web content should be automatically scaled according to
+     * the device's current system font scale setting.
+     * Disabling this setting will restore the previously used values for
+     * {@link GeckoRuntimeSettings#getFontSizeFactor()} and
+     * {@link GeckoRuntimeSettings#getFontInflationEnabled()}.
      *
-     * Note: For each blocked site, {@link GeckoSession.NavigationDelegate#onLoadError}
-     * with error category {@link WebRequestError#ERROR_CATEGORY_SAFEBROWSING}
-     * is called.
-     *
-     * @param enabled A flag determining whether or not to block malware sites.
-     * @return The GeckoRuntimeSettings instance.
+     * @param enabled A flag determining whether or not font sizes should be scaled automatically
+     *                to match the device's system font scale.
+     * @return This GeckoRuntimeSettings instance.
      */
-    public @NonNull GeckoRuntimeSettings setBlockMalware(boolean enabled) {
-        mSafebrowsingMalware.set(enabled);
+    public @NonNull GeckoRuntimeSettings setAutomaticFontSizeAdjustment(boolean enabled) {
+        GeckoFontScaleListener.getInstance().setEnabled(enabled);
         return this;
     }
 
     /**
-     * Get whether or not known malware sites are blocked.
+     * Get whether or not the font sizes for web content are automatically adjusted to match the
+     * device's system font scale setting.
      *
-     * @return True if malware site blocking is enabled.
+     * @return True if font sizes are automatically adjusted.
      */
-    public boolean getBlockMalware() {
-        return mSafebrowsingMalware.get();
+    public boolean getAutomaticFontSizeAdjustment() {
+        return GeckoFontScaleListener.getInstance().getEnabled();
     }
 
+    // Sync values with dom/media/nsIAutoplay.idl.
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({ AUTOPLAY_DEFAULT_ALLOWED, AUTOPLAY_DEFAULT_BLOCKED })
+    /* package */ @interface AutoplayDefault {}
+
     /**
-     * Set whether or not known phishing sites should be blocked.
-     *
-     * Note: For each blocked site, {@link GeckoSession.NavigationDelegate#onLoadError}
-     * with error category {@link WebRequestError#ERROR_CATEGORY_SAFEBROWSING}
-     * is called.
-     *
-     * @param enabled A flag determining whether or not to block phishing sites.
-     * @return The GeckoRuntimeSettings instance.
+     * Autoplay video is allowed.
      */
-    public @NonNull GeckoRuntimeSettings setBlockPhishing(boolean enabled) {
-        mSafebrowsingPhishing.set(enabled);
+    public static final int AUTOPLAY_DEFAULT_ALLOWED = 0;
+
+    /**
+     * Autoplay video is blocked.
+     */
+    public static final int AUTOPLAY_DEFAULT_BLOCKED = 1;
+
+    /**
+     * Sets video autoplay mode.
+     * May be either {@link GeckoRuntimeSettings#AUTOPLAY_DEFAULT_ALLOWED} or {@link GeckoRuntimeSettings#AUTOPLAY_DEFAULT_BLOCKED}
+     * @param autoplay Allows or blocks video autoplay.
+     * @return This GeckoRuntimeSettings instance.
+     */
+    public @NonNull GeckoRuntimeSettings setAutoplayDefault(@AutoplayDefault int autoplay) {
+        mAutoplayDefault.commit(autoplay);
         return this;
     }
 
     /**
-     * Get whether or not known phishing sites are blocked.
-     *
-     * @return True if phishing site blocking is enabled.
+     * Gets the current video autoplay mode.
+     * @return The current video autoplay mode. Will be either {@link GeckoRuntimeSettings#AUTOPLAY_DEFAULT_ALLOWED}
+     * or {@link GeckoRuntimeSettings#AUTOPLAY_DEFAULT_BLOCKED}
      */
-    public boolean getBlockPhishing() {
-        return mSafebrowsingPhishing.get();
+    public @AutoplayDefault int getAutoplayDefault() {
+        return mAutoplayDefault.get();
     }
 
-    @Override // Parcelable
-    public int describeContents() {
-        return 0;
+    private static int FONT_INFLATION_BASE_VALUE = 120;
+
+    /**
+     * Set a font size factor that will operate as a global text zoom. All font sizes will be
+     * multiplied by this factor.
+     *
+     * <p>The default factor is 1.0.
+     *
+     * <p>Currently, any changes only take effect after a reload of the session.
+     *
+     * <p>This setting cannot be modified while
+     * {@link GeckoRuntimeSettings#setAutomaticFontSizeAdjustment automatic font size adjustment}
+     * is enabled.
+     *
+     * @param fontSizeFactor The factor to be used for scaling all text. Setting a value of 0
+     *                       disables both this feature and
+     *                       {@link GeckoRuntimeSettings#setFontInflationEnabled font inflation}.
+     * @return This GeckoRuntimeSettings instance.
+     */
+    public @NonNull GeckoRuntimeSettings setFontSizeFactor(float fontSizeFactor) {
+        if (getAutomaticFontSizeAdjustment()) {
+            throw new IllegalStateException("Not allowed when automatic font size adjustment is enabled");
+        }
+        return setFontSizeFactorInternal(fontSizeFactor);
+    }
+
+    /* package */ @NonNull GeckoRuntimeSettings setFontSizeFactorInternal(float fontSizeFactor) {
+        if (fontSizeFactor < 0) {
+            throw new IllegalArgumentException("fontSizeFactor cannot be < 0");
+        }
+
+        final int fontSizePercentage = Math.round(fontSizeFactor * 100);
+        mFontSizeFactor.commit(Math.round(fontSizePercentage));
+        if (getFontInflationEnabled()) {
+            final int scaledFontInflation = Math.round(FONT_INFLATION_BASE_VALUE * fontSizeFactor);
+            mFontInflationMinTwips.commit(scaledFontInflation);
+        }
+        return this;
+    }
+
+    /**
+     * Gets the currently applied font size factor.
+     *
+     * @return The currently applied font size factor.
+     */
+    public float getFontSizeFactor() {
+        return mFontSizeFactor.get() / 100f;
+    }
+
+    /**
+     * Set whether or not font inflation for non mobile-friendly pages should be enabled. The
+     * default value of this setting is <code>false</code>.
+     *
+     * <p>When enabled, font sizes will be increased on all pages that are lacking a &lt;meta&gt;
+     * viewport tag and have been loaded in a session using
+     * {@link GeckoSessionSettings#VIEWPORT_MODE_MOBILE}. To improve readability, the font inflation
+     * logic will attempt to increase font sizes for the main text content of the page only.
+     *
+     * <p>The magnitude of font inflation applied depends on the
+     * {@link GeckoRuntimeSettings#setFontSizeFactor font size factor} currently in use.
+     *
+     * <p>Currently, any changes only take effect after a reload of the session.
+     *
+     * <p>This setting cannot be modified while
+     * {@link GeckoRuntimeSettings#setAutomaticFontSizeAdjustment automatic font size adjustment}
+     * is enabled.
+     *
+     * @param enabled A flag determining whether or not font inflation should be enabled.
+     * @return This GeckoRuntimeSettings instance.
+     */
+    public @NonNull GeckoRuntimeSettings setFontInflationEnabled(boolean enabled) {
+        if (getAutomaticFontSizeAdjustment()) {
+            throw new IllegalStateException("Not allowed when automatic font size adjustment is enabled");
+        }
+        return setFontInflationEnabledInternal(enabled);
+    }
+
+    /* package */ @NonNull GeckoRuntimeSettings setFontInflationEnabledInternal(boolean enabled) {
+        final int minTwips =
+                enabled ? Math.round(FONT_INFLATION_BASE_VALUE * getFontSizeFactor()) : 0;
+        mFontInflationMinTwips.commit(minTwips);
+        return this;
+    }
+
+    /**
+     * Get whether or not font inflation for non mobile-friendly pages is currently enabled.
+     *
+     * @return True if font inflation is enabled.
+     */
+    public boolean getFontInflationEnabled() {
+        return mFontInflationMinTwips.get() > 0;
     }
 
     @Override // Parcelable
     public void writeToParcel(Parcel out, int flags) {
+        super.writeToParcel(out, flags);
+
         ParcelableUtils.writeBoolean(out, mUseContentProcess);
         out.writeStringArray(mArgs);
         mExtras.writeToParcel(out, flags);
-
-        for (final Pref<?> pref : mPrefs) {
-            out.writeValue(pref.get());
-        }
-
         ParcelableUtils.writeBoolean(out, mDebugPause);
         ParcelableUtils.writeBoolean(out, mUseMaxScreenDepth);
         out.writeFloat(mDisplayDensityOverride);
@@ -878,17 +773,11 @@ public final class GeckoRuntimeSettings implements Parcelable {
 
     // AIDL code may call readFromParcel even though it's not part of Parcelable.
     public void readFromParcel(final @NonNull Parcel source) {
+        super.readFromParcel(source);
+
         mUseContentProcess = ParcelableUtils.readBoolean(source);
         mArgs = source.createStringArray();
         mExtras.readFromParcel(source);
-
-        for (final Pref<?> pref : mPrefs) {
-            // We know this is safe.
-            @SuppressWarnings("unchecked")
-            final Pref<Object> uncheckedPref = (Pref<Object>) pref;
-            uncheckedPref.set(source.readValue(getClass().getClassLoader()));
-        }
-
         mDebugPause = ParcelableUtils.readBoolean(source);
         mUseMaxScreenDepth = ParcelableUtils.readBoolean(source);
         mDisplayDensityOverride = source.readFloat();
